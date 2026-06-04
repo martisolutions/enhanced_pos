@@ -1,0 +1,45 @@
+{
+	"doctype": "DocType",
+	"name": "Enhanced POS Settings",
+	"module": "Enhanced Pos",
+	"custom": 0,
+	"is_single": 0,
+	"autoname": "field:settings_title",
+	"fields": [
+		{
+			"fieldname": "settings_title",
+			"label": "Titulo",
+			"fieldtype": "Data",
+			"reqd": 1,
+			"in_list_view": 1
+		},
+		{
+			"fieldname": "show_invoice_picker",
+			"label": "Mostrar selector de facturas pendientes",
+			"fieldtype": "Check",
+			"default": 0
+		},
+		{
+			"fieldname": "auto_create_delivery_note",
+			"label": "Crear nota de entrega automaticamente",
+			"fieldtype": "Check",
+			"default": 0,
+			"depends_on": "eval:doc.show_invoice_picker"
+		}
+	],
+	"permissions": [
+		{
+			"role": "System Manager",
+			"read": 1,
+			"write": 1,
+			"create": 1,
+			"delete": 0,
+			"amend": 0
+		}
+	],
+	"document_type": "Settings",
+	"hide_toolbar": 0,
+	"track_changes": 0,
+	"show_title_field": 1,
+	"title_field": "settings_title"
+}

@@ -71,7 +71,7 @@ app_license = "mit"
 # website_generators = ["Web Page"]
 
 # automatically load and sync documents of this doctype from downstream apps
-# importable_doctypes = [doctype_1]
+importable_doctypes = ["Enhanced POS Settings"]
 
 # Jinja
 # ----------
@@ -256,3 +256,5 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+
+website_route_rules = [{'from_route': '/pos/<path:app_path>', 'to_route': 'pos'},]
