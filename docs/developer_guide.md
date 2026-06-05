@@ -1,145 +1,317 @@
 # Developer Guide: Extending Enhanced POS with Plugins
 
-The **Enhanced POS** custom application supports a dynamic, modular plugin framework. Other Frappe apps can inject custom logic, UI elements, visual styles, and payment methods without modifying the core `enhanced_pos` codebase.
+The **Enhanced POS** supports a dynamic, modular plugin framework. Other Frappe apps can inject
+custom logic, UI components, and lifecycle hooks **without modifying the Enhanced POS codebase**.
+
+For a quick overview of all available hooks and types, see the [API Reference](api_reference.md).
+For internal architecture details, see [Architecture](architecture.md).
 
 ---
 
 ## 1. Backend Asset Injection
 
-To extend the POS, your custom Frappe app must specify its JavaScript and CSS asset paths using hooks. The POS backend queries these hooks and automatically loads your assets prior to booting the Vue 3 frontend.
-
-Add the following to your custom app's `hooks.py` file:
+Declare your JS/CSS files in your app's `hooks.py`. The POS will load them automatically on startup:
 
 ```python
-# your_custom_app/hooks.py
+# your_app/hooks.py
 
-# Path to the JavaScript files containing plugin registration logic
 enhanced_pos_js = [
-    "/assets/your_custom_app/js/pos_plugin.js"
+    "/assets/your_app/js/pos_plugin.js"
 ]
 
-# Path to custom CSS files containing plugin stylesheets
+# Optional — additional styles
 enhanced_pos_css = [
-    "/assets/your_custom_app/css/pos_plugin.css"
+    "/assets/your_app/css/pos_plugin.css"
 ]
 ```
 
 ---
 
-## 2. Frontend Plugin Registration
+## 2. Registering a Plugin
 
-Once your assets are loaded, they will have access to the global `window.EnhancedPos` namespace. You register custom features by calling `window.EnhancedPos.registerPlugin()`.
-
-### API Interface
-
-A plugin object should satisfy the following TypeScript interface:
-
-```typescript
-interface PosPlugin {
-    name: string;             // Unique identifier for the plugin
-    label?: string;           // Optional human-readable display label
-    hook: string;             // Hook target location
-    component?: any;          // Optional custom Vue Component / Render Function
-    class?: string;           // Optional CSS class override for buttons
-    action?: (ctx: any) => void | Promise<void>; // Optional click event action
-    disabled?: (ctx: any) => boolean;            // Optional disabled validator
-    
-    // Lifecycle Hooks
-    onItemAdd?: (item: any, cart: any[]) => void;
-    beforePayment?: (paymentData: any) => Promise<boolean | void> | boolean | void;
-    afterPayment?: (paymentResult: any) => Promise<void> | void;
-}
-```
-
----
-
-## 3. Extension Slots (Hooks)
-
-### A. `header_action`
-Adds action buttons or widgets inside the top bar header.
+Once your JS is loaded, use the global `window.EnhancedPos.registerPlugin()` function:
 
 ```javascript
+// your_app/public/js/pos_plugin.js
+
 window.EnhancedPos.registerPlugin({
-    name: "print_last_receipt",
-    label: "Reimprimir Ticket",
-    hook: "header_action",
-    class: "btn border border-gray-300 hover:bg-gray-100 text-sm font-semibold rounded-lg px-4 py-2",
-    action(ctx) {
-        console.log("Printing last receipt. Session info:", ctx);
-        frappe.show_alert("Buscando ultima transaccion...");
-    }
-});
-```
-
-### B. `cart_action`
-Adds buttons or controls to the bottom of the Cart card.
-
-```javascript
-window.EnhancedPos.registerPlugin({
-    name: "apply_custom_discount",
-    label: "Descuento 10%",
-    hook: "cart_action",
-    action(ctx) {
-        // ctx has access to { cart, cartTotal }
-        console.log("Applying 10% discount on cart:", ctx.cart);
-    }
-});
-```
-
-### C. `payment_method`
-Registers custom payment methods (e.g., card readers, Klarna, local wallets) and loads custom UI widgets/iframes.
-
-```javascript
-window.EnhancedPos.registerPlugin({
-    name: "Stripe Reader",
-    label: "Cobrar con Stripe",
-    hook: "payment_method",
-    component: {
-        template: `
-            <div class="stripe-payment-widget bg-indigo-50 border border-indigo-200 p-4 rounded-xl">
-                <p class="font-bold text-indigo-900 mb-2">Stripe Terminal</p>
-                <p class="text-xs text-indigo-700 mb-4">Esperando aproximación de tarjeta...</p>
-                <button class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded" @click="simulateSwipe">
-                    Simular Lectura
-                </button>
-            </div>
-        `,
-        props: ['amount', 'cartTotal'],
-        methods: {
-            simulateSwipe() {
-                frappe.show_alert({ message: "Lectura de tarjeta exitosa", indicator: "green" });
-                // Emit success to let PaymentPad confirm the transaction
-                this.$emit('success');
-            }
-        }
-    }
+  name: 'my-plugin',   // Unique identifier — required
+  hook: 'catalog_panel', // Where to render / which event to listen to
+  // ... rest of plugin definition
 });
 ```
 
 ---
 
-## 4. Lifecycle Event Hooks
+## 3. UI Hook Examples
 
-You can intercept and hook into crucial POS states:
+### A. `header_action` — Add a button to the top bar
 
-*   `onItemAdd(item, cart)`: Triggered when a product is added. Ideal for volume-based pricing or custom taxes.
-*   `beforePayment(paymentData)`: Executes asynchronously before completing a transaction. Return `false` to block checkout.
-*   `afterPayment(paymentResult)`: Executed after database submission. Useful for analytical pings or sending notifications.
+The simplest form: a button with a label and click handler.
 
 ```javascript
 window.EnhancedPos.registerPlugin({
-    name: "tax_validator",
-    hook: "pos_event_listener",
-    
-    // Check tax values before confirming payment
-    async beforePayment(paymentData) {
-        const confirm = await frappe.confirm("¿Confirmar cobro por " + paymentData.paid_amount + "?");
-        return confirm; // If user selects No, payment is canceled
-    },
-    
-    // Log analytical data on completion
-    afterPayment(result) {
-        console.log("Transacción completada:", result);
-    }
+  name: 'print-last-receipt',
+  label: 'Reimprimir Ticket',
+  hook: 'header_action',
+  class: 'btn border border-gray-300 hover:bg-gray-100 text-sm font-semibold rounded-lg px-4 py-2',
+  action(ctx) {
+    frappe.show_alert({ message: 'Buscando última transacción...', indicator: 'blue' });
+    console.log('Cart at time of click:', ctx.cart);
+  },
+  disabled(ctx) {
+    return !ctx.state.opening_entries.length; // Disable when no session
+  },
 });
+```
+
+---
+
+### B. `catalog_panel` — Panel below the product catalog
+
+Inject a Vue component beneath the product grid. The component receives the full `PosContext` as the `ctx` prop.
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'stock-summary-panel',
+  hook: 'catalog_panel',
+  component: {
+    props: ['ctx'],
+    template: `
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-2">
+        <p class="font-bold text-blue-900">Stock Summary</p>
+        <p class="text-sm text-blue-700">{{ ctx.products.length }} products loaded</p>
+        <p class="text-sm text-blue-700">Cart total: {{ ctx.currency }} {{ ctx.cartTotal.toFixed(2) }}</p>
+      </div>
+    `,
+  },
+});
+```
+
+---
+
+### C. `cart_panel` — Panel below the cart
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'discount-button',
+  label: 'Descuento 10%',
+  hook: 'cart_panel',
+  action(ctx) {
+    // ctx.addToCart is a safe mutation function
+    console.log('Current cart:', ctx.cart);
+    frappe.show_alert('Applying discount...');
+  },
+});
+```
+
+---
+
+### D. `payment_panel` — Custom payment widget
+
+Inject a full payment integration below the standard keypad.
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'stripe-terminal',
+  hook: 'payment_panel',
+  component: {
+    props: ['ctx'],
+    data() { return { status: 'idle' }; },
+    template: `
+      <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mt-2">
+        <p class="font-bold text-indigo-900 mb-2">Stripe Terminal</p>
+        <p class="text-xs text-indigo-700 mb-4">Status: {{ status }}</p>
+        <button
+          class="bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700"
+          @click="charge"
+        >
+          Cobrar con Tarjeta — {{ ctx.currency }} {{ ctx.cartTotal.toFixed(2) }}
+        </button>
+      </div>
+    `,
+    methods: {
+      async charge() {
+        this.status = 'Processing...';
+        // Call your Stripe backend here
+        await frappe.call({ method: 'your_app.api.charge_stripe', args: { amount: this.ctx.cartTotal } });
+        this.status = 'Done ✓';
+      }
+    }
+  },
+});
+```
+
+---
+
+### E. `modal_extra` — Plugin-owned custom modal
+
+Your plugin controls when its modal is visible via its own state.
+
+```javascript
+const MyModal = {
+  props: ['ctx'],
+  data() { return { visible: false }; },
+  template: `
+    <div v-if="visible" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 max-w-md w-full">
+        <h3 class="font-bold text-lg mb-4">Mi Modal de Plugin</h3>
+        <p>Total del carrito: {{ ctx.cartTotal }}</p>
+        <button @click="visible = false">Cerrar</button>
+      </div>
+    </div>
+  `,
+  mounted() {
+    // Expose a way to open it from outside
+    window._myPluginModal = this;
+  }
+};
+
+window.EnhancedPos.registerPlugin({
+  name: 'my-custom-modal',
+  hook: 'modal_extra',
+  component: MyModal,
+});
+
+// Open the modal from a header button:
+window.EnhancedPos.registerPlugin({
+  name: 'open-my-modal-btn',
+  label: 'Mi Modal',
+  hook: 'header_action',
+  action() {
+    if (window._myPluginModal) window._myPluginModal.visible = true;
+  },
+});
+```
+
+---
+
+## 4. Lifecycle Hook Examples
+
+### `onItemAdd` — React to cart additions
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'item-tracker',
+  hook: 'onItemAdd', // hook value is ignored for lifecycle-only plugins
+  onItemAdd(item, cart) {
+    console.log(`[Tracker] Item added: ${item.item_code}`);
+    console.log(`[Tracker] Cart now has ${cart.length} lines`);
+  },
+});
+```
+
+### `onCartChange` — React to any cart mutation
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'cart-analytics',
+  hook: 'lifecycle',
+  onCartChange(cart) {
+    const total = cart.reduce((s, r) => s + r.qty * r.rate, 0);
+    console.log('[Analytics] Cart updated. New total:', total);
+  },
+});
+```
+
+### `beforePayment` — Validate or cancel a payment
+
+Return `false` to block the payment. Return nothing (or `true`) to allow it.
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'payment-validator',
+  hook: 'lifecycle',
+  async beforePayment(paymentData) {
+    if (paymentData.paid_amount < 1) {
+      frappe.msgprint('El importe mínimo es 1€.');
+      return false; // ← cancels the payment
+    }
+    // Ask for confirmation
+    return new Promise(resolve => {
+      frappe.confirm(
+        `¿Confirmar cobro de ${paymentData.paid_amount}€ con ${paymentData.mode_of_payment}?`,
+        () => resolve(true),
+        () => resolve(false)
+      );
+    });
+  },
+});
+```
+
+### `afterPayment` — Post-payment side effects
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'receipt-printer',
+  hook: 'lifecycle',
+  async afterPayment(result) {
+    console.log('[Printer] Payment confirmed:', result);
+    await frappe.call({ method: 'your_app.api.print_receipt', args: { result } });
+    frappe.show_alert({ message: 'Ticket impreso ✓', indicator: 'green' });
+  },
+});
+```
+
+### `onSessionLoad` — Initialize on POS boot
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'session-init',
+  hook: 'lifecycle',
+  onSessionLoad(state) {
+    console.log('[Plugin] POS booted. Profile:', state.opening_entries[0]?.pos_profile);
+  },
+});
+```
+
+---
+
+## 5. Using Dynamic Props
+
+Use `props` (a factory function) to pass reactive data to your component:
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'smart-panel',
+  hook: 'cart_panel',
+  props(ctx) {
+    return {
+      itemCount: ctx.cart.length,
+      total: ctx.cartTotal,
+      currency: ctx.currency,
+    };
+  },
+  component: {
+    props: ['itemCount', 'total', 'currency', 'ctx'],
+    template: `
+      <div class="p-3 bg-gray-50 rounded-xl mt-2 text-sm text-gray-600">
+        {{ itemCount }} líneas · Total: {{ currency }} {{ total.toFixed(2) }}
+      </div>
+    `
+  }
+});
+```
+
+---
+
+## 6. Testing Your Plugin
+
+Open the POS in the browser, then run in the DevTools console:
+
+```javascript
+// Verify registration
+window.EnhancedPos.PluginService.getPluginsForHook('catalog_panel');
+
+// Register a minimal test plugin
+window.EnhancedPos.registerPlugin({
+  name: 'test-plugin',
+  hook: 'catalog_panel',
+  component: {
+    template: '<div style="background:red;color:white;padding:8px;border-radius:8px">🔌 Plugin OK</div>'
+  }
+});
+
+// Unregister it
+window.EnhancedPos.PluginService.unregister('test-plugin');
 ```

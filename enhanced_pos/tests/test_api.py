@@ -1,7 +1,7 @@
 import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from enhanced_pos.api.pos import get_session_state, get_sales_invoice_details
+from enhanced_pos.api.pos import get_session_state, get_sales_invoice_details, create_quick_item, ensure_generic_item, get_sellable_items
 
 
 class TestEnhancedPOSApi(FrappeTestCase):
@@ -107,3 +107,106 @@ class TestEnhancedPOSApi(FrappeTestCase):
 			self.assertEqual(res["delivery_notes"], ["DN-001"])
 		finally:
 			frappe.get_doc = original_get_doc
+
+	def test_create_quick_item_already_exists(self):
+		"""Test that create_quick_item throws error if item_code already exists"""
+		original_exists = frappe.db.exists
+		frappe.db.exists = lambda doctype, name: True if doctype == "Item" else original_exists(doctype, name)
+		original_has_permission = frappe.has_permission
+		frappe.has_permission = lambda *args, **kwargs: True
+		try:
+			self.assertRaises(frappe.ValidationError, create_quick_item, "ITEM-001", "Product", "All Item Groups", 10.0)
+		finally:
+			frappe.db.exists = original_exists
+	def test_create_quick_item_success(self):
+		"""Test that create_quick_item runs successfully and handles Item Price exists/not exists"""
+		from unittest.mock import MagicMock
+		original_exists = frappe.db.exists
+		original_db_get_value = frappe.db.get_value
+		original_has_permission = frappe.has_permission
+		original_get_doc = frappe.get_doc
+
+		# Setup mocks
+		frappe.db.exists = lambda doctype, name: False
+		frappe.has_permission = lambda *args, **kwargs: True
+
+		inserted_docs = []
+		mock_doc = MagicMock()
+		mock_doc.name = "NEW-ITEM-CODE"
+		mock_doc.item_code = "NEW-ITEM-CODE"
+		mock_doc.item_name = "New Item Name"
+		mock_doc.insert = lambda *args, **kwargs: inserted_docs.append(mock_doc)
+
+		def mock_get_doc(data, *args, **kwargs):
+			if isinstance(data, dict):
+				if data.get("doctype") in ["Item", "Item Price"]:
+					return mock_doc
+			return original_get_doc(data, *args, **kwargs)
+
+		frappe.get_doc = mock_get_doc
+
+		# 1. Price doesn't exist
+		def mock_db_get_value(doctype, filters=None, fieldname=None, *args, **kwargs):
+			if doctype == "Item Price":
+				return None
+			return original_db_get_value(doctype, filters, fieldname, *args, **kwargs)
+		frappe.db.get_value = mock_db_get_value
+		try:
+			res = create_quick_item("NEW-ITEM-CODE", "New Item Name", "All Item Groups", 50.0, valuation_rate=30.0)
+			self.assertEqual(res["item_code"], "NEW-ITEM-CODE")
+			self.assertEqual(res["rate"], 50.0)
+		finally:
+			frappe.db.exists = original_exists
+			frappe.db.get_value = original_db_get_value
+			frappe.has_permission = original_has_permission
+			frappe.get_doc = original_get_doc
+
+	def test_ensure_generic_item_creates_if_not_exists(self):
+		"""Test that ensure_generic_item inserts a new item if it does not exist"""
+		from unittest.mock import MagicMock
+		original_exists = frappe.db.exists
+		frappe.db.exists = lambda doctype, name: False if doctype == "Item" else original_exists(doctype, name)
+
+		# Mock Doc Insert
+		mock_doc = MagicMock()
+		original_get_doc = frappe.get_doc
+
+		inserted = []
+		def mock_get_doc(data):
+			if isinstance(data, dict) and data.get("doctype") == "Item":
+				mock_doc.insert = lambda *args, **kwargs: inserted.append(data)
+				return mock_doc
+			return original_get_doc(data)
+
+		frappe.get_doc = mock_get_doc
+		try:
+			ensure_generic_item("Otros")
+			self.assertEqual(len(inserted), 1)
+			self.assertEqual(inserted[0]["item_code"], "Otros")
+		finally:
+			frappe.db.exists = original_exists
+			frappe.get_doc = original_get_doc
+
+	def test_get_sellable_items_item_group(self):
+		"""Test that get_sellable_items correctly filters items by item group and handles descendants"""
+		original_get_all = frappe.get_all
+		original_get_descendants = frappe.db.get_descendants
+
+		frappe.db.get_descendants = lambda doctype, parent: ["Subcategory"]
+		filters_passed = []
+		def mock_get_all(doctype, *args, **kwargs):
+			if doctype == "Item":
+				filters = kwargs.get("filters") or (args[0] if args else None)
+				filters_passed.append(filters)
+				return [{"item_code": "TEST-ITEM", "standard_rate": 10.0}]
+			return original_get_all(doctype, *args, **kwargs)
+
+		frappe.get_all = mock_get_all
+		try:
+			get_sellable_items(item_group="Root Category")
+			self.assertEqual(len(filters_passed), 1)
+			self.assertIn("Root Category", filters_passed[0]["item_group"][1])
+			self.assertIn("Subcategory", filters_passed[0]["item_group"][1])
+		finally:
+			frappe.get_all = original_get_all
+			frappe.db.get_descendants = original_get_descendants

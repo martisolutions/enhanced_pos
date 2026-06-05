@@ -84,6 +84,10 @@ def get_enhanced_pos_settings(settings_name):
 		"settings_title": settings.settings_title,
 		"show_invoice_picker": settings.show_invoice_picker,
 		"auto_create_delivery_note": settings.auto_create_delivery_note,
+		"enable_quick_item_creation": settings.get("enable_quick_item_creation") or 0,
+		"enable_generic_item": settings.get("enable_generic_item") or 0,
+		"generic_item_code": settings.get("generic_item_code"),
+		"show_images": settings.get("show_images") if settings.get("show_images") is not None else 1,
 	}
 
 
@@ -93,6 +97,102 @@ def get_default_enhanced_pos_settings():
 	if not settings_name:
 		return {}
 	return get_enhanced_pos_settings(settings_name)
+
+
+@frappe.whitelist()
+def create_quick_item(item_code, item_name, item_group, standard_rate, valuation_rate=None, pos_profile=None):
+	if not frappe.has_permission("Item", "create"):
+		frappe.throw(_("No tienes permisos para crear artículos."))
+
+	if frappe.db.exists("Item", item_code):
+		frappe.throw(_("El código de artículo {0} ya existe.").format(item_code))
+
+	# Default stock uom
+	stock_uom = frappe.db.get_value("UOM", {"name": ["in", ["Nos", "Unidad", "Unit"]]}, "name") or "Nos"
+
+	item = frappe.get_doc({
+		"doctype": "Item",
+		"item_code": item_code,
+		"item_name": item_name,
+		"item_group": item_group,
+		"stock_uom": stock_uom,
+		"is_sales_item": 1,
+		"is_stock_item": 0,
+		"standard_rate": flt(standard_rate),
+		"valuation_rate": flt(valuation_rate) if valuation_rate else 0.0,
+	})
+	item.insert()
+
+	# Create Item Price in Selling Price List
+	price_list = None
+	if pos_profile:
+		price_list = frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
+	if not price_list:
+		price_list = frappe.get_single_value("Selling Settings", "selling_price_list")
+
+	if price_list:
+		existing_price_name = frappe.db.get_value("Item Price", {
+			"price_list": price_list,
+			"item_code": item_code
+		})
+		if existing_price_name:
+			frappe.db.set_value("Item Price", existing_price_name, "price_list_rate", flt(standard_rate))
+		else:
+			item_price = frappe.get_doc({
+				"doctype": "Item Price",
+				"price_list": price_list,
+				"item_code": item_code,
+				"price_list_rate": flt(standard_rate),
+				"selling": 1,
+			})
+			item_price.insert()
+
+	# Create/Update Item Price in Buying Price List
+	if valuation_rate and flt(valuation_rate) > 0:
+		buying_price_list = frappe.get_single_value("Buying Settings", "buying_price_list") or "Standard Buying"
+		existing_buying_price = frappe.db.get_value("Item Price", {
+			"price_list": buying_price_list,
+			"item_code": item_code
+		})
+		if existing_buying_price:
+			frappe.db.set_value("Item Price", existing_buying_price, "price_list_rate", flt(valuation_rate))
+		else:
+			item_buying_price = frappe.get_doc({
+				"doctype": "Item Price",
+				"price_list": buying_price_list,
+				"item_code": item_code,
+				"price_list_rate": flt(valuation_rate),
+				"buying": 1,
+				"selling": 0,
+			})
+			item_buying_price.insert()
+
+	return {
+		"name": item.name,
+		"item_code": item.item_code,
+		"item_name": item.item_name,
+		"rate": flt(standard_rate),
+		"image": None,
+	}
+
+
+@frappe.whitelist()
+def ensure_generic_item(item_code="Otros"):
+	if not frappe.db.exists("Item", item_code):
+		stock_uom = frappe.db.get_value("UOM", {"name": ["in", ["Nos", "Unidad", "Unit"]]}, "name") or "Nos"
+		item_group = frappe.db.get_value("Item Group", {}, "name") or "All Item Groups"
+		item = frappe.get_doc({
+			"doctype": "Item",
+			"item_code": item_code,
+			"item_name": "Otros",
+			"item_group": item_group,
+			"stock_uom": stock_uom,
+			"is_sales_item": 1,
+			"is_stock_item": 0,
+			"standard_rate": 0.0,
+		})
+		item.insert(ignore_permissions=True)
+	return item_code
 
 
 @frappe.whitelist()
@@ -201,13 +301,18 @@ def create_closing_entry_from_opening(pos_opening_entry):
 
 
 @frappe.whitelist()
-def get_sellable_items(search_term="", limit=40, pos_profile=None):
+def get_sellable_items(search_term="", limit=40, pos_profile=None, item_group=None):
 	limit = max(1, min(frappe.utils.cint(limit) or 40, 100))
 	filters = {
 		"disabled": 0,
 		"is_sales_item": 1,
 		"has_variants": 0,
 	}
+	if item_group and item_group != "All Item Groups":
+		descendants = frappe.db.get_descendants("Item Group", item_group)
+		item_groups = [item_group] + descendants
+		filters["item_group"] = ["in", item_groups]
+
 	or_filters = []
 	if search_term:
 		like_term = f"%{search_term.strip()}%"

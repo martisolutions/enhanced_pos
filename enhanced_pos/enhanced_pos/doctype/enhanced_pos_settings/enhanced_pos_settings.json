@@ -25,6 +25,35 @@
 			"fieldtype": "Check",
 			"default": 0,
 			"depends_on": "eval:doc.show_invoice_picker"
+		},
+		{
+			"fieldname": "enable_quick_item_creation",
+			"label": "Habilitar creación rápida de productos",
+			"fieldtype": "Check",
+			"default": 0,
+			"description": "Muestra una tarjeta fija al inicio del catálogo para crear productos rápidamente."
+		},
+		{
+			"fieldname": "enable_generic_item",
+			"label": "Habilitar producto genérico (Otros)",
+			"fieldtype": "Check",
+			"default": 0,
+			"description": "Permite registrar un producto con precio y nombre libre en el POS sin configurar un artículo en el sistema."
+		},
+		{
+			"fieldname": "generic_item_code",
+			"label": "Artículo para producto genérico (Otros)",
+			"fieldtype": "Link",
+			"options": "Item",
+			"description": "Artículo base del sistema usado para los registros genéricos (por defecto busca 'Otros').",
+			"depends_on": "eval:doc.enable_generic_item"
+		},
+		{
+			"fieldname": "show_images",
+			"label": "Mostrar imágenes de productos",
+			"fieldtype": "Check",
+			"default": 1,
+			"description": "Si está activo, se muestran las imágenes en el catálogo de productos."
 		}
 	],
 	"permissions": [
