@@ -1,4 +1,6 @@
 import './index.css';
+import { __ } from './utils/i18n';
+(window as any).__ = __;
 import { createApp, reactive } from "vue";
 import App from "./App.vue";
 

@@ -54,3 +54,5 @@ jspm_packages/
 
 # Aider AI Chat
 .aider*
+
+enhanced_pos/public/pos/assets/*

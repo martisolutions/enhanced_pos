@@ -20,17 +20,21 @@
  * @returns     The translated string, or the original if no translation is found
  */
 export function __(text: string, args?: any[], lang?: string): string {
-	const frappe = (window as any).frappe;
+	const translations = (window as any).__translations || {};
+	let translated = translations[text];
 
-	// Use Frappe's translation engine if available
-	if (frappe?.__) {
-		return frappe.__(text, args, lang);
+	if (!translated) {
+		const frappe = (window as any).frappe;
+		if (frappe?.__) {
+			return frappe.__(text, args, lang);
+		}
+		translated = text;
 	}
-	// Fallback: replace {0}, {1}, ... placeholders manually
+
 	if (args?.length) {
-		return text.replace(/\{(\d+)\}/g, (_, i) => String(args[Number(i)] ?? ''));
+		translated = translated.replace(/\{(\d+)\}/g, (_: string, i: string) => String(args[Number(i)] ?? ''));
 	}
-	return text;
+	return translated;
 }
 
 /**

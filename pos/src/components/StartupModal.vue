@@ -23,7 +23,7 @@
 					<AppLinkField v-model="localForm.enhanced_pos_settings" doctype="Enhanced POS Settings" />
 				</div>
 			</div>
-
+			
 			<div class="flex gap-2 justify-end mt-4">
 				<button
 					class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700"

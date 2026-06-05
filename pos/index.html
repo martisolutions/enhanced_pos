@@ -10,11 +10,34 @@
 
 <body>
   <div id="app"></div>
+  <script type="application/json" id="pos-translations">
+    {{ translations | safe if translations else '{}' }}
+  </script>
   <script>
     window.csrf_token = '{{ csrf_token }}';
     if (window.csrf_token.startsWith('{' + '{')) {
       window.csrf_token = '';
     }
+
+    // Parse translations safely
+    try {
+      const transEl = document.getElementById('pos-translations');
+      const rawTrans = transEl ? transEl.textContent.trim() : '';
+      if (rawTrans && !rawTrans.startsWith('{' + '{')) {
+        window.__translations = JSON.parse(rawTrans);
+      } else {
+        window.__translations = {};
+      }
+    } catch (e) {
+      window.__translations = {};
+    }
+
+    // Set user language safely
+    window.__user_lang = '{{ user_lang }}';
+    if (window.__user_lang.startsWith('{' + '{') || !window.__user_lang) {
+      window.__user_lang = 'en';
+    }
+
     // TODO: load boot data here (context file is created in `www` directory)
   </script>
   <script type="module" src="/src/main.ts"></script>
