@@ -1,7 +1,7 @@
 import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from enhanced_pos.api.pos import get_session_state, get_sales_invoice_details, create_quick_item, ensure_generic_item, get_sellable_items
+from enhanced_pos.api.pos import get_session_state, get_sales_invoice_details, create_quick_item, ensure_generic_item, get_sellable_items, get_enhanced_pos_settings, create_unpaid_invoice, cancel_unpaid_invoice, create_invoice_payment_entry
 
 
 class TestEnhancedPOSApi(FrappeTestCase):
@@ -210,3 +210,134 @@ class TestEnhancedPOSApi(FrappeTestCase):
 		finally:
 			frappe.get_all = original_get_all
 			frappe.db.get_descendants = original_get_descendants
+
+	def test_get_enhanced_pos_settings_keys(self):
+		"""Test that get_enhanced_pos_settings returns all settings including customer display config"""
+		from unittest.mock import MagicMock
+		mock_settings = MagicMock()
+		mock_settings.name = "Test Settings"
+		mock_settings.settings_title = "Test Settings Title"
+		mock_settings.show_invoice_picker = 1
+		mock_settings.auto_create_delivery_note = 1
+		mock_settings.enable_quick_item_creation = 1
+		mock_settings.enable_generic_item = 1
+		mock_settings.generic_item_code = "Otros"
+		mock_settings.show_images = 1
+		mock_settings.enable_customer_display = 1
+		mock_settings.customer_display_media = "http://example.com/promo.mp4"
+		mock_settings.media_rotation_interval = 15
+		mock_settings.primary_color = "#ff0000"
+		mock_settings.get = lambda key, default=None: getattr(mock_settings, key, default)
+
+		original_get_doc = frappe.get_doc
+		frappe.get_doc = lambda doctype, name: mock_settings if doctype == "Enhanced POS Settings" else original_get_doc(doctype, name)
+		try:
+			res = get_enhanced_pos_settings("Test Settings")
+			self.assertEqual(res["name"], "Test Settings")
+			self.assertEqual(res["enable_customer_display"], 1)
+			self.assertEqual(res["customer_display_media"], "http://example.com/promo.mp4")
+			self.assertEqual(res["media_rotation_interval"], 15)
+			self.assertEqual(res["primary_color"], "#ff0000")
+		finally:
+			frappe.get_doc = original_get_doc
+
+	def test_create_unpaid_invoice_success(self):
+		"""Test that create_unpaid_invoice inserts and submits a Sales Invoice with correct data"""
+		from unittest.mock import MagicMock
+		mock_invoice = MagicMock()
+		mock_invoice.name = "ACC-SINV-2026-99999"
+		mock_invoice.outstanding_amount = 50.0
+		mock_invoice.grand_total = 50.0
+		mock_invoice.currency = "EUR"
+		mock_invoice.items = []
+
+		original_get_doc = frappe.get_doc
+		original_db_get_value = frappe.db.get_value
+
+		def mock_get_doc(data):
+			if isinstance(data, dict) and data.get("doctype") == "Sales Invoice":
+				return mock_invoice
+			return original_get_doc(data)
+
+		frappe.get_doc = mock_get_doc
+		frappe.db.get_value = lambda doctype, filters, fieldname=None, *args, **kwargs: "Generico" if doctype == "POS Profile" else "Nos"
+
+		try:
+			res = create_unpaid_invoice(
+				company="Test Company",
+				pos_profile="Caja 1",
+				items=[{"item_code": "ITEM-001", "qty": 2, "rate": 25.0}]
+			)
+			self.assertEqual(res["name"], "ACC-SINV-2026-99999")
+			self.assertEqual(res["outstanding_amount"], 50.0)
+			self.assertEqual(res["grand_total"], 50.0)
+			self.assertTrue(mock_invoice.insert.called)
+			self.assertTrue(mock_invoice.submit.called)
+		finally:
+			frappe.get_doc = original_get_doc
+			frappe.db.get_value = original_db_get_value
+
+	def test_cancel_unpaid_invoice_success(self):
+		"""Test that cancel_unpaid_invoice cancels a submitted invoice"""
+		from unittest.mock import MagicMock
+		mock_invoice = MagicMock()
+		mock_invoice.docstatus = 1
+
+		original_get_doc = frappe.get_doc
+		frappe.get_doc = lambda doctype, name: mock_invoice if doctype == "Sales Invoice" else original_get_doc(doctype, name)
+		try:
+			res = cancel_unpaid_invoice("ACC-SINV-2026-99999")
+			self.assertTrue(res)
+			self.assertTrue(mock_invoice.cancel.called)
+		finally:
+			frappe.get_doc = original_get_doc
+
+	def test_create_invoice_payment_entry_with_metadata(self):
+		"""Test that create_invoice_payment_entry applies payment_entry_data metadata to the Payment Entry"""
+		from unittest.mock import MagicMock
+		
+		mock_invoice = MagicMock()
+		mock_invoice.name = "ACC-SINV-2026-99999"
+		mock_invoice.docstatus = 1
+		mock_invoice.outstanding_amount = 100.0
+		mock_invoice.grand_total = 100.0
+		mock_invoice.currency = "USD"
+		mock_invoice.company = "Test Company"
+		mock_invoice.items = []
+
+		mock_pe = MagicMock()
+		mock_pe.references = [MagicMock()]
+
+		original_get_doc = frappe.get_doc
+		original_db_get_value = frappe.db.get_value
+		
+		import enhanced_pos.api.pos
+		original_gpe = enhanced_pos.api.pos.get_payment_entry
+		enhanced_pos.api.pos.get_payment_entry = lambda *args, **kwargs: mock_pe
+
+		frappe.get_doc = lambda doctype, name: mock_invoice if doctype == "Sales Invoice" else original_get_doc(doctype, name)
+
+		def mock_db_get_value(doctype, filters=None, fieldname=None, *args, **kwargs):
+			if doctype == "Mode of Payment Account":
+				return "Bank Account"
+			return original_db_get_value(doctype, filters, fieldname, *args, **kwargs)
+		frappe.db.get_value = mock_db_get_value
+		
+		try:
+			res = create_invoice_payment_entry(
+				invoice_name="ACC-SINV-2026-99999",
+				mode_of_payment="Cash",
+				paid_amount=100.0,
+				payment_entry_data={"reference_no": "REF-9999", "remarks": "TPV Cash"}
+			)
+			self.assertEqual(res["invoice"], "ACC-SINV-2026-99999")
+			mock_pe.set.assert_any_call("reference_no", "REF-9999")
+			mock_pe.set.assert_any_call("remarks", "TPV Cash")
+			self.assertTrue(mock_pe.insert.called)
+			self.assertTrue(mock_pe.submit.called)
+		finally:
+			frappe.get_doc = original_get_doc
+			frappe.db.get_value = original_db_get_value
+			enhanced_pos.api.pos.get_payment_entry = original_gpe
+
+

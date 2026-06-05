@@ -20,6 +20,10 @@ const DEFAULT_STATE: POSState = {
 	enable_quick_item_creation: 0,
 	enable_generic_item: 0,
 	generic_item_code: '',
+	enable_customer_display: 0,
+	customer_display_media: '',
+	media_rotation_interval: 10,
+	primary_color: '#4f46e5',
 };
 
 /**
@@ -109,6 +113,15 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 				if (cfg.show_images !== undefined) {
 					state.value.visual_settings_defaults.show_images = Number(cfg.show_images);
 					visualSettings.value.show_images = Number(stored.show_images ?? cfg.show_images);
+				}
+
+				state.value.enable_customer_display = Number(cfg.enable_customer_display || 0);
+				state.value.customer_display_media = cfg.customer_display_media || '';
+				state.value.media_rotation_interval = Number(cfg.media_rotation_interval ?? 10);
+				state.value.primary_color = cfg.primary_color || '#4f46e5';
+
+				if (cfg.primary_color) {
+					document.documentElement.style.setProperty('--epos-primary', cfg.primary_color);
 				}
 			}
 

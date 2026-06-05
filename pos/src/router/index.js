@@ -18,6 +18,11 @@ const routes = [
   },
   ...authRoutes,
   {
+	path: "/customer-display",
+	name: "CustomerDisplay",
+	component: () => import("../views/CustomerDisplay.vue"),
+  },
+  {
 	path: "/:pathMatch(.*)*",
 	redirect: "/",
   },

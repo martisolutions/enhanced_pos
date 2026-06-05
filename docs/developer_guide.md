@@ -293,9 +293,66 @@ window.EnhancedPos.registerPlugin({
 });
 ```
 
+```
+
 ---
 
-## 6. Testing Your Plugin
+## 6. Extending the Customer Display (Pantalla Secundaria)
+
+The Customer Display (`/pos/customer-display`) is also fully extensible. It supports loading registered plugins and has its own designated UI slot hook for custom payment interfaces:
+
+### UI Hook: `customer_payment_panel`
+This hook renders a component inside the customer display card during checkout (when `activeScreen === 'payment'`).
+
+```javascript
+window.EnhancedPos.registerPlugin({
+  name: 'klarna-customer-qr',
+  hook: 'customer_payment_panel',
+  component: {
+    props: ['ctx'],
+    data() {
+      return { qrCodeUrl: null };
+    },
+    template: `
+      <div v-if="qrCodeUrl" class="bg-white p-4 rounded-xl shadow mt-4 text-center">
+        <img :src="qrCodeUrl" class="w-40 h-40 mx-auto" />
+        <p class="text-xs text-slate-500 mt-2">Escanea para pagar con Klarna</p>
+      </div>
+    `,
+    mounted() {
+      // Listen to custom updates from the main POS plugin
+      const bc = new BroadcastChannel('pos_customer_display');
+      bc.onmessage = (event) => {
+        if (event.data.type === 'KLARNA_QR_UPDATE') {
+          this.qrCodeUrl = event.data.payload.qrCodeUrl;
+        }
+      };
+    }
+  }
+});
+```
+
+### Broadcasting custom data from the POS main page
+Plugins on the POS main page can broadcast custom events directly to the customer display via `ctx.broadcastToDisplay(type, payload)`.
+
+```javascript
+// Inside a beforePayment hook in your main POS plugin:
+async beforePayment(paymentData) {
+  if (paymentData.mode_of_payment === 'Klarna') {
+    // 1. Initialize session on backend
+    const session = await frappe.xcall('klarna_integration.api.create_session', { amount: paymentData.paid_amount });
+    
+    // 2. Broadcast the QR code directly to the customer display
+    // (the 'klarna-customer-qr' plugin running in the customer window will intercept and show it)
+    window.EnhancedPos.PluginService.getPluginsForHook('lifecycle')[0]
+      .broadcastToDisplay('KLARNA_QR_UPDATE', { qrCodeUrl: session.qr_code_url });
+  }
+}
+```
+
+---
+
+## 7. Testing Your Plugin
 
 Open the POS in the browser, then run in the DevTools console:
 

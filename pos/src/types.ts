@@ -58,6 +58,10 @@ export interface POSState {
 	enable_quick_item_creation?: number | boolean;
 	enable_generic_item?: number | boolean;
 	generic_item_code?: string;
+	enable_customer_display?: number | boolean;
+	customer_display_media?: string;
+	media_rotation_interval?: number;
+	primary_color?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -75,6 +79,8 @@ export type UIHook =
 	| 'payment_panel'    // Below the payment keypad
 	| 'header_action'    // Extra button/widget in the PosHeader bar
 	| 'modal_extra'      // A fully custom modal managed by the plugin
+	| 'customer_payment_panel' // Inside the customer display during checkout
+	| 'checkout_panel';  // Checkout/payment intent screen on POS main page
 
 /**
  * Lifecycle event hooks that do not render UI but run callbacks at key moments.
@@ -82,6 +88,7 @@ export type UIHook =
 export type LifecycleHook =
 	| 'onItemAdd'       // After an item is added to the cart
 	| 'beforePayment'   // Before confirming a payment (can cancel if returns false)
+	| 'afterInvoiceCreate' // After the unpaid Sales Invoice has been created and submitted
 	| 'afterPayment'    // After the payment is confirmed and saved
 	| 'onSessionLoad'   // After the POS session state is loaded
 	| 'onCartChange'    // After any mutation to the cart (add, remove, qty change)
@@ -106,6 +113,21 @@ export interface PosContext {
 	addToCart: (item: Partial<Product> & { item_code: string }) => void;
 	/** Reload the product catalog */
 	loadProducts: (search?: string, group?: string) => Promise<void>;
+	/** Connection status of secondary customer display screen */
+	customerDisplayConnected: boolean;
+	/** Send custom broadcast payload to the customer display */
+	broadcastToDisplay: (type: string, payload: any) => void;
+	// New checkout fields and methods
+	invoiceToPay: any;
+	activeScreen: 'sale' | 'payment' | 'checkout' | 'success' | 'payment_ok' | 'payment_error';
+	paymentMethod: string;
+	paymentAmount: number;
+	confirmPaymentEntry: (paymentEntryData?: any) => Promise<void>;
+	cancelUnpaidInvoice: () => Promise<void>;
+	qrCode: string | null;
+	setQrCode: (url: string | null) => void;
+	printFormat: string | null;
+	printInvoice: (invoiceName?: string) => void;
 }
 
 /**
@@ -155,6 +177,14 @@ export interface PosPlugin {
 		mode_of_payment: string;
 		paid_amount: number;
 	}) => Promise<boolean | void> | boolean | void;
+	/** Called after the unpaid Sales Invoice has been created and submitted */
+	afterInvoiceCreate?: (invoiceDetails: {
+		name: string;
+		outstanding_amount: number;
+		grand_total: number;
+		currency: string;
+		delivery_notes: string[];
+	}) => Promise<void> | void;
 	/** Called after the payment has been confirmed and saved */
 	afterPayment?: (paymentResult: any) => Promise<void> | void;
 }

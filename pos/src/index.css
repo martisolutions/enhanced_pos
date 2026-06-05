@@ -1,4 +1,46 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-	
+
+:root {
+  --epos-primary: #4f46e5;
+}
+
+/* Override tailwind indigo classes dynamically to match customer branding */
+.bg-indigo-600 {
+  background-color: var(--epos-primary) !important;
+}
+.hover\:bg-indigo-700:hover {
+  background-color: var(--epos-primary) !important;
+  filter: brightness(0.9) !important;
+}
+.text-indigo-600 {
+  color: var(--epos-primary) !important;
+}
+.text-indigo-900 {
+  color: var(--epos-primary) !important;
+}
+.border-indigo-600 {
+  border-color: var(--epos-primary) !important;
+}
+.border-indigo-200 {
+  border-color: color-mix(in srgb, var(--epos-primary) 30%, transparent) !important;
+}
+.border-indigo-100 {
+  border-color: color-mix(in srgb, var(--epos-primary) 15%, transparent) !important;
+}
+.hover\:border-indigo-100:hover {
+  border-color: color-mix(in srgb, var(--epos-primary) 30%, transparent) !important;
+}
+.bg-indigo-50 {
+  background-color: color-mix(in srgb, var(--epos-primary) 8%, transparent) !important;
+}
+.bg-indigo-50\/10 {
+  background-color: color-mix(in srgb, var(--epos-primary) 10%, transparent) !important;
+}
+.bg-indigo-50\/30 {
+  background-color: color-mix(in srgb, var(--epos-primary) 30%, transparent) !important;
+}
+.bg-indigo-100\/60 {
+  background-color: color-mix(in srgb, var(--epos-primary) 20%, transparent) !important;
+}

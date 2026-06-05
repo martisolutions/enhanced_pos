@@ -85,7 +85,7 @@
 				:disabled="!cart.length"
 				@click="$emit('goToPaymentScreen')"
 			>
-				{{ __('Finalizar Compra') }}
+				{{ __('Siguiente') }}
 			</button>
 
 			<!-- Plugins extension slot in Cart Actions -->
@@ -93,14 +93,13 @@
 				<component
 					v-if="plugin.component"
 					:is="plugin.component"
-					:cart="cart"
-					:cart-total="cartTotal"
+					:ctx="ctx"
 				/>
 				<button
 					v-else
 					:class="plugin.class || 'btn btn-default border border-gray-200 text-gray-600 py-2 rounded-xl transition font-semibold w-full text-sm'"
-					:disabled="plugin.disabled ? plugin.disabled({ cart, cartTotal }) : !cart.length"
-					@click="plugin.action ? plugin.action({ cart, cartTotal }) : null"
+					:disabled="plugin.disabled ? plugin.disabled(ctx) : !cart.length"
+					@click="plugin.action ? plugin.action(ctx) : null"
 				>
 					{{ __(plugin.label || plugin.name) }}
 				</button>
@@ -111,7 +110,7 @@
 
 <script lang="ts">
 import { defineComponent, computed } from 'vue';
-import type { CartItem, CartGroup } from '../types';
+import type { CartItem, CartGroup, PosContext } from '../types';
 import PluginService from '../services/plugins';
 
 export default defineComponent({
@@ -136,6 +135,10 @@ export default defineComponent({
 		readOnly: {
 			type: Boolean,
 			default: false
+		},
+		ctx: {
+			type: Object as () => PosContext,
+			required: true
 		}
 	},
 	emits: ['increaseQty', 'decreaseQty', 'removeInvoiceReference', 'goToPaymentScreen'],

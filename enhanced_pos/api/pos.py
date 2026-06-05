@@ -88,6 +88,10 @@ def get_enhanced_pos_settings(settings_name):
 		"enable_generic_item": settings.get("enable_generic_item") or 0,
 		"generic_item_code": settings.get("generic_item_code"),
 		"show_images": settings.get("show_images") if settings.get("show_images") is not None else 1,
+		"enable_customer_display": settings.get("enable_customer_display") or 0,
+		"customer_display_media": settings.get("customer_display_media") or "",
+		"media_rotation_interval": settings.get("media_rotation_interval") if settings.get("media_rotation_interval") is not None else 10,
+		"primary_color": settings.get("primary_color") or "#4f46e5",
 	}
 
 
@@ -224,7 +228,7 @@ def get_sales_invoice_details(invoice_name):
 
 
 @frappe.whitelist()
-def create_invoice_payment_entry(invoice_name, mode_of_payment, paid_amount=None, create_delivery_note=0):
+def create_invoice_payment_entry(invoice_name, mode_of_payment, paid_amount=None, create_delivery_note=0, payment_entry_data=None):
 	invoice = frappe.get_doc("Sales Invoice", invoice_name)
 	if invoice.docstatus != 1:
 		frappe.throw(_("Solo se pueden procesar facturas confirmadas."))
@@ -269,6 +273,18 @@ def create_invoice_payment_entry(invoice_name, mode_of_payment, paid_amount=None
 	if delivery_note_name and delivery_note_name not in delivery_notes:
 		pe.remarks = f"{(pe.remarks or '').strip()}\nDelivery Note Created: {delivery_note_name}".strip()
 
+	# Custom payment metadata (TPV, card reference, etc.)
+	if payment_entry_data:
+		if isinstance(payment_entry_data, str):
+			payment_entry_data = json.loads(payment_entry_data)
+		for key, val in payment_entry_data.items():
+			pe.set(key, val)
+
+	if not pe.reference_no:
+		pe.reference_no = f"POS-{invoice.name}"
+	if not pe.reference_date:
+		pe.reference_date = nowdate()
+
 	pe.flags.ignore_permissions = True
 	pe.insert()
 	pe.submit()
@@ -280,6 +296,58 @@ def create_invoice_payment_entry(invoice_name, mode_of_payment, paid_amount=None
 		"delivery_notes": delivery_notes,
 		"delivery_note_created": delivery_note_name,
 	}
+
+
+@frappe.whitelist()
+def create_unpaid_invoice(company, pos_profile, items, customer=None):
+	if isinstance(items, str):
+		items = json.loads(items)
+
+	if not customer:
+		customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
+	if not customer:
+		customer = frappe.db.get_value("Customer", {}, "name")
+	if not customer:
+		frappe.throw(_("Debe configurar un cliente por defecto en el POS Profile."))
+
+	invoice = frappe.get_doc({
+		"doctype": "Sales Invoice",
+		"customer": customer,
+		"company": company,
+		"pos_profile": pos_profile,
+		"is_pos": 1,
+		"update_stock": 1,
+		"items": [
+			{
+				"item_code": item.get("item_code").split("::")[0],
+				"qty": flt(item.get("qty")),
+				"rate": flt(item.get("rate")),
+				"uom": item.get("uom") or frappe.db.get_value("Item", item.get("item_code").split("::")[0], "stock_uom") or "Nos",
+			} for item in items if not item.get("is_reference")
+		]
+	})
+
+	invoice.set_missing_values()
+	invoice.insert(ignore_permissions=True)
+	invoice.submit()
+
+	delivery_notes = sorted({d.delivery_note for d in invoice.items if d.delivery_note})
+
+	return {
+		"name": invoice.name,
+		"outstanding_amount": flt(invoice.outstanding_amount),
+		"grand_total": flt(invoice.grand_total),
+		"currency": invoice.currency,
+		"delivery_notes": delivery_notes,
+	}
+
+
+@frappe.whitelist()
+def cancel_unpaid_invoice(invoice_name):
+	invoice = frappe.get_doc("Sales Invoice", invoice_name)
+	if invoice.docstatus == 1:
+		invoice.cancel()
+	return True
 
 
 @frappe.whitelist()

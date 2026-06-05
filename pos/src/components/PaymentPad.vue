@@ -96,7 +96,7 @@
 					:disabled="!canConfirm"
 					@click="onConfirm"
 				>
-					{{ __('Confirmar Pago') }}
+					{{ __('Finalizar compra') }}
 				</button>
 			</div>
 		</div>

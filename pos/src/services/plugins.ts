@@ -110,6 +110,24 @@ class PluginRegistry {
 		return true;
 	}
 
+	/** Fires after the unpaid Sales Invoice has been created and submitted. */
+	public async triggerAfterInvoiceCreate(invoiceDetails: {
+		name: string;
+		outstanding_amount: number;
+		grand_total: number;
+		currency: string;
+		delivery_notes: string[];
+	}): Promise<void> {
+		const hooks = this.state.plugins.filter(p => p.afterInvoiceCreate);
+		for (const plugin of hooks) {
+			try {
+				await plugin.afterInvoiceCreate!(invoiceDetails);
+			} catch (err) {
+				console.error(`[EnhancedPOS] Error in afterInvoiceCreate for plugin "${plugin.name}":`, err);
+			}
+		}
+	}
+
 	/** Fires after the payment is confirmed and saved. */
 	public async triggerAfterPayment(paymentResult: any): Promise<void> {
 		const hooks = this.state.plugins.filter(p => p.afterPayment);

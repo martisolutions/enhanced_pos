@@ -54,6 +54,33 @@
 			"fieldtype": "Check",
 			"default": 1,
 			"description": "Si está activo, se muestran las imágenes en el catálogo de productos."
+		},
+		{
+			"fieldname": "enable_customer_display",
+			"label": "Habilitar pantalla secundaria para el cliente",
+			"fieldtype": "Check",
+			"default": 0
+		},
+		{
+			"fieldname": "customer_display_media",
+			"label": "URLs de Media Promocional (Video o Imagen)",
+			"fieldtype": "Text",
+			"description": "Una URL por línea. Las imágenes rotarán; los videos se reproducirán secuencialmente.",
+			"depends_on": "eval:doc.enable_customer_display"
+		},
+		{
+			"fieldname": "media_rotation_interval",
+			"label": "Intervalo de Rotación de Media (segundos)",
+			"fieldtype": "Int",
+			"default": 10,
+			"depends_on": "eval:doc.enable_customer_display"
+		},
+		{
+			"fieldname": "primary_color",
+			"label": "Color Primario de Marca",
+			"fieldtype": "Color",
+			"default": "#4f46e5",
+			"description": "Color principal de la marca para sincronizar la UI."
 		}
 	],
 	"permissions": [

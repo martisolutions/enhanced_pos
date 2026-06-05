@@ -20,14 +20,16 @@ export function usePayment(
 	cartTotal: Ref<number>,
 	clearCart: () => void,
 	state: Ref<POSState>,
-	loadPaymentMethodsImpl: (pos_profile: string) => Promise<any[]>,
 	call: (...args: any[]) => Promise<any>,
 ) {
 	// ── State ─────────────────────────────────────────────────────────
-	const activeScreen = ref<'sale' | 'payment'>('sale');
+	const activeScreen = ref<'sale' | 'payment' | 'checkout' | 'success' | 'payment_ok' | 'payment_error'>('sale');
 	const paymentMethods = ref<string[]>([]);
 	const selectedPaymentMethod = ref('');
 	const paymentInput = ref('0');
+	const successInvoice = ref('');
+	const successTotal = ref(0);
+	const printFormat = ref<string | null>(null);
 
 	// ── Computed ──────────────────────────────────────────────────────
 
@@ -83,9 +85,13 @@ export function usePayment(
 		if (!profile) {
 			paymentMethods.value = [];
 			selectedPaymentMethod.value = '';
+			printFormat.value = null;
 			return;
 		}
-		const rows = await loadPaymentMethodsImpl(profile);
+		const profileData = await call('enhanced_pos.api.pos.get_profile_data', { pos_profile: profile });
+		const rows = profileData.payments || [];
+		printFormat.value = profileData.print_format || null;
+
 		paymentMethods.value = (rows || []).map((r: any) => r.mode_of_payment).filter(Boolean);
 		if (!selectedPaymentMethod.value && paymentMethods.value.length) {
 			selectedPaymentMethod.value = paymentMethods.value[0];
@@ -124,7 +130,6 @@ export function usePayment(
 	/** Transitions to the payment screen after loading payment methods. */
 	const goToPaymentScreen = async (): Promise<void> => {
 		if (!cart.value.length) { alert(__('Agrega productos al carrito.')); return; }
-		invoiceToPay.value = null;
 		await loadPaymentMethods();
 		paymentInput.value = String(expectedPaymentTotal.value.toFixed(2));
 		activeScreen.value = 'payment';
@@ -139,43 +144,158 @@ export function usePayment(
 
 	/** Processes the payment. Runs beforePayment hooks; can be cancelled by plugins. */
 	const confirmPayment = async (): Promise<void> => {
-		if (!canConfirmPayment.value) return;
+		if (!selectedPaymentMethod.value) {
+			alert(__('Por favor, seleccione un método de pago.'));
+			return;
+		}
+		if (cart.value.length === 0) {
+			alert(__('El carrito está vacío.'));
+			return;
+		}
 		const method = selectedPaymentMethod.value;
-		const total = expectedPaymentTotal.value;
+		const amount = paymentAmount.value;
 
 		try {
-			// Allow plugins to cancel the payment
+			// 1. Run beforePayment hook (plugins can cancel the checkout)
 			const allowed = await PluginService.triggerBeforePayment({
 				invoice_name: invoiceToPay.value?.name,
 				mode_of_payment: method,
-				paid_amount: paymentAmount.value,
+				paid_amount: amount,
 			});
 			if (!allowed) return;
 
-			// Paying a fetched invoice
-			if (invoiceToPay.value?.name) {
-				const result = await call('enhanced_pos.api.pos.create_invoice_payment_entry', {
-					invoice_name: invoiceToPay.value.name,
-					mode_of_payment: method,
-					paid_amount: paymentAmount.value,
-					create_delivery_note: state.value.auto_create_delivery_note,
+			// 2. If it's a standard cart (no fetched invoice exists yet), create the unpaid Sales Invoice
+			if (!invoiceToPay.value?.name) {
+				const invoiceDetails = await call('enhanced_pos.api.pos.create_unpaid_invoice', {
+					company: state.value.opening_entries?.[0]?.company,
+					pos_profile: state.value.opening_entries?.[0]?.pos_profile,
+					items: cart.value.filter(item => !item.is_reference),
+					customer: null,
 				});
-				clearCart();
-				paymentInput.value = '0';
-				activeScreen.value = 'sale';
-				alert(__('Pago registrado en {0} por {1}', [result.payment_entry, total]));
-				await PluginService.triggerAfterPayment(result);
-				return;
+				invoiceToPay.value = {
+					name: invoiceDetails.name,
+					outstanding_amount: Number(invoiceDetails.outstanding_amount || 0),
+					delivery_notes: invoiceDetails.delivery_notes || [],
+				};
+				
+				// 2b. Move to checkout screen first so cashier UI and customer display reflect "Pago en proceso"
+				activeScreen.value = 'checkout';
+				
+				await PluginService.triggerAfterInvoiceCreate(invoiceDetails);
+			} else {
+				// Move to the checkout screen to wait for terminal/payment intent
+				activeScreen.value = 'checkout';
 			}
 
-			// Standard cart payment
+			// 3. Reset screen to sale if the invoice was already paid or cancelled by a plugin
+			if (!invoiceToPay.value && activeScreen.value === 'checkout') {
+				activeScreen.value = 'sale';
+			}
+		} catch (e: any) {
+			alert(e.message || __('Error al crear la factura de venta.'));
+		}
+	};
+
+	const confirmPaymentEntry = async (paymentEntryData?: any): Promise<void> => {
+		if (!invoiceToPay.value?.name) {
+			alert(__('No hay ninguna factura pendiente de pago.'));
+			return;
+		}
+		const method = selectedPaymentMethod.value;
+		const amount = paymentAmount.value;
+
+		try {
+			const result = await call('enhanced_pos.api.pos.create_invoice_payment_entry', {
+				invoice_name: invoiceToPay.value.name,
+				mode_of_payment: method,
+				paid_amount: amount,
+				create_delivery_note: state.value.auto_create_delivery_note,
+				payment_entry_data: paymentEntryData || null,
+			});
+
+			// Broadcast PAYMENT_OK event to the customer display
+			const bc = new BroadcastChannel('pos_customer_display');
+			bc.postMessage({
+				type: 'PAYMENT_OK',
+				payload: {
+					invoice: result.invoice,
+					amount: amount,
+				}
+			});
+			bc.close();
+
+			// Store success values for POS screen
+			successInvoice.value = result.invoice || '';
+			successTotal.value = amount;
+
 			clearCart();
 			paymentInput.value = '0';
-			activeScreen.value = 'sale';
-			alert(__('Pago confirmado con {0} por {1}', [method, total]));
-			await PluginService.triggerAfterPayment({ method, amount: total });
+			invoiceToPay.value = null;
+			activeScreen.value = 'payment_ok';
+
+			// Automatically return to sale screen after 5 seconds
+			setTimeout(() => {
+				if (activeScreen.value === 'payment_ok') {
+					activeScreen.value = 'sale';
+				}
+			}, 5000);
+
+			// Trigger print automatically
+			try {
+				printInvoice(result.invoice);
+			} catch (e) {
+				console.error("Auto print failed:", e);
+			}
+
+			const frappe = (window as any).frappe;
+			if (frappe?.show_alert) {
+				frappe.show_alert({
+					message: __('Pago registrado en {0} por {1}', [result.payment_entry, amount]),
+					indicator: 'green'
+				});
+			}
+			await PluginService.triggerAfterPayment(result);
 		} catch (e: any) {
-			alert(e.message || 'Error processing payment');
+			alert(e.message || __('Error al confirmar el cobro.'));
+		}
+	};
+
+	const cancelUnpaidInvoice = async (): Promise<void> => {
+		if (!invoiceToPay.value?.name) return;
+		const name = invoiceToPay.value.name;
+
+		try {
+			await call('enhanced_pos.api.pos.cancel_unpaid_invoice', {
+				invoice_name: name,
+			});
+			invoiceToPay.value = null;
+			activeScreen.value = 'sale';
+			alert(__('Factura {0} cancelada.', [name]));
+		} catch (e: any) {
+			alert(e.message || __('Error al cancelar la factura.'));
+		}
+	};
+
+	const changePaymentMethod = (): void => {
+		activeScreen.value = 'payment';
+	};
+
+	const printInvoice = (invoiceName?: string): void => {
+		const name = invoiceName || successInvoice.value;
+		if (!name) return;
+		const format = printFormat.value || 'POS Invoice';
+		const printUrl = `/printview?doctype=Sales%20Invoice&name=${encodeURIComponent(name)}&format=${encodeURIComponent(format)}&no_letterhead=0`;
+		const w = window.open(printUrl, '_blank');
+		if (w) {
+			w.focus();
+		} else {
+			const frappe = (window as any).frappe;
+			const msg = __('El navegador bloqueó la ventana de impresión. Por favor, permita las ventanas emergentes.');
+			if (frappe?.msgprint) {
+				frappe.msgprint(msg);
+			} else {
+				alert(msg);
+			}
 		}
 	};
 
@@ -185,6 +305,10 @@ export function usePayment(
 		paymentMethods,
 		selectedPaymentMethod,
 		paymentInput,
+		successInvoice,
+		successTotal,
+		printFormat,
+		printInvoice,
 		// Computed
 		paymentAmount,
 		paymentDue,
@@ -199,6 +323,9 @@ export function usePayment(
 		goToPaymentScreen,
 		backToSaleScreen,
 		confirmPayment,
+		confirmPaymentEntry,
+		cancelUnpaidInvoice,
+		changePaymentMethod,
 	};
 }
 
