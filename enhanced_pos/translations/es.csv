@@ -61,3 +61,5 @@
 "La factura ya esta pagada.","La factura ya esta pagada."
 "El importe de pago debe ser mayor que cero.","El importe de pago debe ser mayor que cero."
 "Debe configurar un cliente por defecto en el POS Profile.","Debe configurar un cliente por defecto en el POS Profile."
+"Confirmar pago","Confirmar pago"
+"Por favor, pulse en confirmar pago cuando se haya completado la transacción.","Por favor, pulse en confirmar pago cuando se haya completado la transacción."

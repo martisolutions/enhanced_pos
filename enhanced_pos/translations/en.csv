@@ -57,7 +57,7 @@
 "Importe exacto","Exact amount"
 "Pendiente","Outstanding"
 "Volver","Back"
-"Finalizar compra","Complete Purchase"
+"Confirmar pago","Confirm Payment"
 "Resumen / Extensiones","Summary / Extensions"
 "Este metodo de pago cuenta con una extension modular.","This payment method has a modular extension."
 "Listo para procesar el cobro.","Ready to process payment."
@@ -122,3 +122,4 @@
 "La factura ya esta pagada.","The invoice is already paid."
 "El importe de pago debe ser mayor que cero.","The payment amount must be greater than zero."
 "Debe configurar un cliente por defecto en el POS Profile.","You must configure a default customer in the POS Profile."
+"Por favor, pulse en confirmar pago cuando se haya completado la transacción.","Please click on confirm payment when the transaction is completed."

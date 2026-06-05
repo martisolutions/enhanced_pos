@@ -110,6 +110,32 @@ class PluginRegistry {
 		return true;
 	}
 
+	/**
+	 * Fires when the payment mode is selected and confirmed by clicking Next.
+	 * Any plugin can return `false` to cancel or block the transition to Step 2.
+	 * @returns `true` if all plugins allow, `false` if any cancels.
+	 */
+	public async triggerOnPaymentModeConfirmed(paymentData: {
+		mode_of_payment: string;
+		paid_amount: number;
+	}): Promise<boolean> {
+		const hooks = this.state.plugins.filter(p => p.onPaymentModeConfirmed);
+		for (const plugin of hooks) {
+			try {
+				const result = await plugin.onPaymentModeConfirmed!(paymentData);
+				if (result === false) {
+					console.warn(`[EnhancedPOS] Payment mode transition halted by plugin "${plugin.name}".`);
+					return false;
+				}
+			} catch (err) {
+				console.error(`[EnhancedPOS] Error in onPaymentModeConfirmed for plugin "${plugin.name}":`, err);
+				throw err;
+			}
+		}
+		return true;
+	}
+
+
 	/** Fires after the unpaid Sales Invoice has been created and submitted. */
 	public async triggerAfterInvoiceCreate(invoiceDetails: {
 		name: string;

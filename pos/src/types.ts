@@ -32,7 +32,6 @@ export type CartGroup =
 	| { type: 'item'; row: CartItem; reference?: never; children?: never };
 
 export interface VisualSettings {
-	theme: string;
 	compact_mode: number | boolean;
 	show_images: number | boolean;
 	show_stock: number | boolean;
@@ -88,6 +87,7 @@ export type UIHook =
 export type LifecycleHook =
 	| 'onItemAdd'       // After an item is added to the cart
 	| 'beforePayment'   // Before confirming a payment (can cancel if returns false)
+	| 'onPaymentModeConfirmed' // When the payment mode is selected and confirmed
 	| 'afterInvoiceCreate' // After the unpaid Sales Invoice has been created and submitted
 	| 'afterPayment'    // After the payment is confirmed and saved
 	| 'onSessionLoad'   // After the POS session state is loaded
@@ -119,7 +119,7 @@ export interface PosContext {
 	broadcastToDisplay: (type: string, payload: any) => void;
 	// New checkout fields and methods
 	invoiceToPay: any;
-	activeScreen: 'sale' | 'payment' | 'checkout' | 'success' | 'payment_ok' | 'payment_error';
+	activeScreen: 'sale' | 'payment' | 'selectPaymentMode' | 'checkout' | 'success' | 'payment_ok' | 'payment_error';
 	paymentMethod: string;
 	paymentAmount: number;
 	confirmPaymentEntry: (paymentEntryData?: any) => Promise<void>;
@@ -187,4 +187,9 @@ export interface PosPlugin {
 	}) => Promise<void> | void;
 	/** Called after the payment has been confirmed and saved */
 	afterPayment?: (paymentResult: any) => Promise<void> | void;
+	/** Called when the payment mode is selected and confirmed */
+	onPaymentModeConfirmed?: (paymentData: {
+		mode_of_payment: string;
+		paid_amount: number;
+	}) => Promise<boolean | void> | boolean | void;
 }

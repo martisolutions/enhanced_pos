@@ -49,7 +49,6 @@ def get_session_state():
 		"opening_entries": opening_entries,
 		"invoice_type": invoice_type,
 		"visual_settings_defaults": {
-			"theme": "forest",
 			"compact_mode": 0,
 			"show_images": 1,
 			"show_stock": 1,
@@ -342,12 +341,35 @@ def create_unpaid_invoice(company, pos_profile, items, customer=None):
 	}
 
 
+
 @frappe.whitelist()
-def cancel_unpaid_invoice(invoice_name):
-	invoice = frappe.get_doc("Sales Invoice", invoice_name)
-	if invoice.docstatus == 1:
-		invoice.cancel()
-	return True
+def create_invoice_with_payment(company, pos_profile, items, mode_of_payment, paid_amount, customer=None, create_delivery_note=0):
+	# 1. Create the unpaid invoice
+	invoice_res = create_unpaid_invoice(
+		company=company,
+		pos_profile=pos_profile,
+		items=items,
+		customer=customer
+	)
+
+	invoice_name = invoice_res["name"]
+
+	# 2. Create the payment entry
+	payment_res = create_invoice_payment_entry(
+		invoice_name=invoice_name,
+		mode_of_payment=mode_of_payment,
+		paid_amount=paid_amount,
+		create_delivery_note=create_delivery_note
+	)
+
+	return {
+		"invoice": invoice_name,
+		"payment_entry": payment_res["payment_entry"],
+		"allocated_amount": payment_res["allocated_amount"],
+		"delivery_notes": invoice_res["delivery_notes"],
+		"delivery_note_created": payment_res["delivery_note_created"]
+	}
+
 
 
 @frappe.whitelist()

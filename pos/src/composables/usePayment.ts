@@ -23,7 +23,7 @@ export function usePayment(
 	call: (...args: any[]) => Promise<any>,
 ) {
 	// ── State ─────────────────────────────────────────────────────────
-	const activeScreen = ref<'sale' | 'payment' | 'checkout' | 'success' | 'payment_ok' | 'payment_error'>('sale');
+	const activeScreen = ref<'sale' | 'payment' | 'selectPaymentMode' | 'checkout' | 'success' | 'payment_ok' | 'payment_error'>('sale');
 	const paymentMethods = ref<string[]>([]);
 	const selectedPaymentMethod = ref('');
 	const paymentInput = ref('0');
@@ -127,12 +127,14 @@ export function usePayment(
 
 	// ── Screen navigation ─────────────────────────────────────────────
 
+	// ── Screen navigation ─────────────────────────────────────────────
+
 	/** Transitions to the payment screen after loading payment methods. */
 	const goToPaymentScreen = async (): Promise<void> => {
 		if (!cart.value.length) { alert(__('Agrega productos al carrito.')); return; }
 		await loadPaymentMethods();
 		paymentInput.value = String(expectedPaymentTotal.value.toFixed(2));
-		activeScreen.value = 'payment';
+		activeScreen.value = 'selectPaymentMode';
 	};
 
 	/** Returns to the sale screen. */
@@ -140,14 +142,37 @@ export function usePayment(
 		activeScreen.value = 'sale';
 	};
 
-	// ── Confirm payment ───────────────────────────────────────────────
+	// ── Confirm payment mode (Step 1 -> Step 2) ─────────────────────────
 
-	/** Processes the payment. Runs beforePayment hooks; can be cancelled by plugins. */
 	const confirmPayment = async (): Promise<void> => {
 		if (!selectedPaymentMethod.value) {
 			alert(__('Por favor, seleccione un método de pago.'));
 			return;
 		}
+		if (cart.value.length === 0) {
+			alert(__('El carrito está vacío.'));
+			return;
+		}
+		const method = selectedPaymentMethod.value;
+		const amount = paymentAmount.value;
+
+		try {
+			// Trigger the new onPaymentModeConfirmed hook
+			const allowed = await PluginService.triggerOnPaymentModeConfirmed({
+				mode_of_payment: method,
+				paid_amount: amount,
+			});
+			if (!allowed) return;
+
+			activeScreen.value = 'checkout';
+		} catch (e: any) {
+			alert(e.message || __('Error al confirmar el método de pago.'));
+		}
+	};
+
+	// ── Finalize Purchase & Create Invoice/Payment Entry (Step 2 -> Step 3) ──
+
+	const confirmPaymentEntry = async (paymentEntryData?: any): Promise<void> => {
 		if (cart.value.length === 0) {
 			alert(__('El carrito está vacío.'));
 			return;
@@ -164,54 +189,27 @@ export function usePayment(
 			});
 			if (!allowed) return;
 
-			// 2. If it's a standard cart (no fetched invoice exists yet), create the unpaid Sales Invoice
-			if (!invoiceToPay.value?.name) {
-				const invoiceDetails = await call('enhanced_pos.api.pos.create_unpaid_invoice', {
+			let result;
+			if (invoiceToPay.value?.name) {
+				// Paying an existing fetched invoice
+				result = await call('enhanced_pos.api.pos.create_invoice_payment_entry', {
+					invoice_name: invoiceToPay.value.name,
+					mode_of_payment: method,
+					paid_amount: amount,
+					create_delivery_note: state.value.auto_create_delivery_note,
+					payment_entry_data: paymentEntryData || null,
+				});
+			} else {
+				// Atomically create invoice AND payment entry in a single step
+				result = await call('enhanced_pos.api.pos.create_invoice_with_payment', {
 					company: state.value.opening_entries?.[0]?.company,
 					pos_profile: state.value.opening_entries?.[0]?.pos_profile,
 					items: cart.value.filter(item => !item.is_reference),
-					customer: null,
+					mode_of_payment: method,
+					paid_amount: amount,
+					create_delivery_note: state.value.auto_create_delivery_note,
 				});
-				invoiceToPay.value = {
-					name: invoiceDetails.name,
-					outstanding_amount: Number(invoiceDetails.outstanding_amount || 0),
-					delivery_notes: invoiceDetails.delivery_notes || [],
-				};
-				
-				// 2b. Move to checkout screen first so cashier UI and customer display reflect "Pago en proceso"
-				activeScreen.value = 'checkout';
-				
-				await PluginService.triggerAfterInvoiceCreate(invoiceDetails);
-			} else {
-				// Move to the checkout screen to wait for terminal/payment intent
-				activeScreen.value = 'checkout';
 			}
-
-			// 3. Reset screen to sale if the invoice was already paid or cancelled by a plugin
-			if (!invoiceToPay.value && activeScreen.value === 'checkout') {
-				activeScreen.value = 'sale';
-			}
-		} catch (e: any) {
-			alert(e.message || __('Error al crear la factura de venta.'));
-		}
-	};
-
-	const confirmPaymentEntry = async (paymentEntryData?: any): Promise<void> => {
-		if (!invoiceToPay.value?.name) {
-			alert(__('No hay ninguna factura pendiente de pago.'));
-			return;
-		}
-		const method = selectedPaymentMethod.value;
-		const amount = paymentAmount.value;
-
-		try {
-			const result = await call('enhanced_pos.api.pos.create_invoice_payment_entry', {
-				invoice_name: invoiceToPay.value.name,
-				mode_of_payment: method,
-				paid_amount: amount,
-				create_delivery_note: state.value.auto_create_delivery_note,
-				payment_entry_data: paymentEntryData || null,
-			});
 
 			// Broadcast PAYMENT_OK event to the customer display
 			const bc = new BroadcastChannel('pos_customer_display');
@@ -233,19 +231,8 @@ export function usePayment(
 			invoiceToPay.value = null;
 			activeScreen.value = 'payment_ok';
 
-			// Automatically return to sale screen after 5 seconds
-			setTimeout(() => {
-				if (activeScreen.value === 'payment_ok') {
-					activeScreen.value = 'sale';
-				}
-			}, 5000);
 
-			// Trigger print automatically
-			try {
-				printInvoice(result.invoice);
-			} catch (e) {
-				console.error("Auto print failed:", e);
-			}
+
 
 			const frappe = (window as any).frappe;
 			if (frappe?.show_alert) {
@@ -256,28 +243,18 @@ export function usePayment(
 			}
 			await PluginService.triggerAfterPayment(result);
 		} catch (e: any) {
+			activeScreen.value = 'payment_error';
 			alert(e.message || __('Error al confirmar el cobro.'));
 		}
 	};
 
 	const cancelUnpaidInvoice = async (): Promise<void> => {
-		if (!invoiceToPay.value?.name) return;
-		const name = invoiceToPay.value.name;
-
-		try {
-			await call('enhanced_pos.api.pos.cancel_unpaid_invoice', {
-				invoice_name: name,
-			});
-			invoiceToPay.value = null;
-			activeScreen.value = 'sale';
-			alert(__('Factura {0} cancelada.', [name]));
-		} catch (e: any) {
-			alert(e.message || __('Error al cancelar la factura.'));
-		}
+		invoiceToPay.value = null;
+		activeScreen.value = 'sale';
 	};
 
 	const changePaymentMethod = (): void => {
-		activeScreen.value = 'payment';
+		activeScreen.value = 'selectPaymentMode';
 	};
 
 	const printInvoice = (invoiceName?: string): void => {

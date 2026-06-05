@@ -179,7 +179,7 @@
 
 						<div v-else class="text-slate-500 text-sm max-w-md mx-auto">
 							<div class="w-12 h-12 rounded-full bg-primary-tint flex items-center justify-center mx-auto mb-3 text-primary">
-								<svg v-if="paymentMethod === 'Cash'" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg v-if="isCash(paymentMethod)" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
 								</svg>
 								<svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,9 +187,16 @@
 								</svg>
 							</div>
 							<template v-if="activeScreen === 'checkout'">
-								<p v-if="paymentMethod === 'Cash'" class="font-medium text-slate-700">
-									{{ __('Por favor, entregue el efectivo al cajero') }}
-								</p>
+								<div v-if="isCash(paymentMethod)" class="w-full flex flex-col gap-3 max-w-xs mx-auto mt-2 text-left border border-slate-100 rounded-2xl p-4 bg-slate-50 shadow-inner">
+									<div class="flex justify-between text-sm">
+										<span class="text-slate-500">{{ __('Efectivo Recibido:') }}</span>
+										<span class="font-bold text-slate-800 font-mono">{{ fmtMoney(cashReceived) }}</span>
+									</div>
+									<div class="flex justify-between text-base font-bold border-t border-slate-200 pt-2.5 mt-1">
+										<span class="text-slate-600">{{ __('Cambio a devolver:') }}</span>
+										<span class="font-mono text-emerald-600 font-black">{{ fmtMoney(changeAmount) }}</span>
+									</div>
+								</div>
 								<p v-else class="font-medium text-slate-700">
 									{{ __('Por favor, siga las instrucciones del terminal') }}
 								</p>
@@ -320,6 +327,8 @@ export default defineComponent({
 		const paymentMethod = ref<string>('');
 		const paymentDue = ref<number>(0);
 		const qrCode = ref<string | null>(null);
+		const cashReceived = ref<number>(0);
+		const changeAmount = ref<number>(0);
 
 		// Configurations
 		const primaryColor = ref<string>('#4f46e5');
@@ -363,6 +372,8 @@ export default defineComponent({
 			async cancelUnpaidInvoice() {},
 			qrCode: qrCode.value,
 			setQrCode() {},
+			printFormat: null,
+			printInvoice() {},
 		}));
 
 		const itemsCount = computed(() => {
@@ -469,6 +480,14 @@ export default defineComponent({
 			paymentMethod.value = payload.paymentMethod || '';
 			paymentDue.value = Number(payload.paymentDue || 0);
 			qrCode.value = payload.qrCode || null;
+			cashReceived.value = Number(payload.cashReceived || 0);
+			changeAmount.value = Number(payload.changeAmount || 0);
+		};
+
+		const isCash = (method: string): boolean => {
+			if (!method) return false;
+			const m = method.toLowerCase();
+			return m.includes('cash') || m.includes('efectivo') || m.includes('dinero');
 		};
 
 		// Money Formatter fallback
@@ -508,7 +527,10 @@ export default defineComponent({
 			fmtMoney,
 			successInvoice,
 			successTotal,
-			errorMessage
+			errorMessage,
+			cashReceived,
+			changeAmount,
+			isCash
 		};
 	}
 });

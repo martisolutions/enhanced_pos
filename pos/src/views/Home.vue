@@ -28,7 +28,7 @@
 		<PluginSlot hook="sale_screen_top" :ctx="posCtx" />
 
 		<!-- ── Main sale screen ─────────────────────────────────────────── -->
-		<div v-if="activeScreen === 'sale'" class="epos-sale-layout grid grid-cols-1 lg:grid-cols-3 gap-4">
+		<div :class="['epos-sale-layout grid grid-cols-1 lg:grid-cols-3 gap-4 transition-all duration-300', activeScreen !== 'sale' ? 'blur-sm pointer-events-none scale-[0.98]' : '']">
 
 			<!-- Product Catalog -->
 			<div class="lg:col-span-2">
@@ -63,151 +63,34 @@
 			</div>
 		</div>
 
-		<!-- ── Payment pad screen ────────────────────────────────────────── -->
-		<div v-else-if="activeScreen === 'payment'" class="mt-4">
-			<PaymentPad
-				:payment-methods="paymentMethods"
-				:selected-payment-method="selectedPaymentMethod"
-				:display-input="displayPaymentInput"
-				:paid-amount="paymentAmount"
-				:cart-total="cartTotal"
-				:payment-due="paymentDue"
-				:can-confirm-payment="canConfirmPayment"
-				:currency="currency"
-				@update:selectedPaymentMethod="selectedPaymentMethod = $event"
-				@pressKey="appendPaymentKey"
-				@backspace="removeLastPaymentKey"
-				@setExactAmount="setExactAmount"
-				@back="backToSaleScreen"
-				@confirm="confirmPayment"
-			/>
-			<PluginSlot hook="payment_panel" :ctx="posCtx" />
-		</div>
-
-		<!-- ── Checkout Confirmation / Waiting Screen ────────────────────── -->
-		<div v-else-if="activeScreen === 'checkout'" class="mt-4 flex flex-col items-center justify-center p-8 bg-white border border-slate-200 rounded-3xl shadow-xl max-w-2xl mx-auto text-center">
-			<div class="w-16 h-16 bg-indigo-50/10 rounded-full flex items-center justify-center text-indigo-600 mb-4 animate-pulse">
-				<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-				</svg>
-			</div>
-			
-			<h2 class="text-2xl font-black text-slate-800 tracking-tight mb-2">
-				{{ __('Procesando Transacción') }}
-			</h2>
-			<p class="text-sm text-slate-500 mb-6">
-				{{ __('Factura {0} generada con éxito por un importe de {1}. Esperando confirmación de cobro.', [invoiceToPay?.name, currency + ' ' + paymentAmount.toFixed(2)]) }}
-			</p>
-			
-			<div class="w-full py-4 border-y border-slate-200 mb-6 text-left text-sm space-y-2">
-				<div class="flex justify-between">
-					<span class="text-slate-400">{{ __('Factura:') }}</span>
-					<span class="font-mono font-semibold text-slate-700">{{ invoiceToPay?.name }}</span>
-				</div>
-				<div class="flex justify-between">
-					<span class="text-slate-400">{{ __('Método de Pago:') }}</span>
-					<span class="font-semibold text-slate-700">{{ selectedPaymentMethod }}</span>
-				</div>
-				<div class="flex justify-between">
-					<span class="text-slate-400">{{ __('Importe:') }}</span>
-					<span class="font-mono font-bold text-slate-800">{{ currency }} {{ paymentAmount.toFixed(2) }}</span>
-				</div>
-			</div>
-
-			<!-- Plugins extension slot in checkout screen -->
-			<div class="w-full mb-6">
-				<PluginSlot hook="checkout_panel" :ctx="posCtx" />
-			</div>
-
-			<div class="flex gap-4 w-full">
-				<button
-					class="flex-1 btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl transition shadow-sm"
-					@click="confirmPaymentEntry()"
-				>
-					{{ __('Confirmar Pago Manual') }}
-				</button>
-				<button
-					class="btn bg-white border border-slate-200 text-slate-600 font-semibold py-3 px-6 rounded-xl hover:bg-slate-50 transition"
-					@click="changePaymentMethod()"
-				>
-					{{ __('Cambiar Método') }}
-				</button>
-				<button
-					class="btn bg-red-50 text-red-600 font-semibold py-3 px-6 rounded-xl hover:bg-red-100 transition"
-					@click="cancelUnpaidInvoice()"
-				>
-					{{ __('Cancelar Factura') }}
-				</button>
-			</div>
-		</div>
-
-		<!-- ── Success Screen ────────────────────────────────────────────── -->
-		<div v-else-if="activeScreen === 'payment_ok'" class="mt-4 flex flex-col items-center justify-center p-8 bg-white border border-slate-200 rounded-3xl shadow-xl max-w-2xl mx-auto text-center animate-fade-in">
-			<div class="w-20 h-20 mx-auto rounded-full bg-emerald-500 flex items-center justify-center text-white mb-6 shadow-lg shadow-emerald-500/20">
-				<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-				</svg>
-			</div>
-
-			<h2 class="text-3xl font-black text-slate-800 tracking-tight mb-2">
-				{{ __('¡Pago Registrado!') }}
-			</h2>
-			<p class="text-sm text-slate-500 mb-6">
-				{{ __('La transacción se ha completado y la factura está pagada.') }}
-			</p>
-
-			<div class="w-full py-4 border-y border-slate-200 mb-6 text-left text-sm space-y-2">
-				<div class="flex justify-between">
-					<span class="text-slate-400">{{ __('Factura:') }}</span>
-					<span class="font-mono font-semibold text-slate-700">{{ successInvoice }}</span>
-				</div>
-				<div class="flex justify-between">
-					<span class="text-slate-400">{{ __('Total Pagado:') }}</span>
-					<span class="font-mono font-bold text-slate-800">{{ currency }} {{ successTotal.toFixed(2) }}</span>
-				</div>
-			</div>
-
-			<div class="flex gap-4 w-full">
-				<button
-					class="flex-1 btn bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-xl transition shadow-sm cursor-pointer"
-					@click="backToSaleScreen()"
-				>
-					{{ __('Nueva Venta') }}
-				</button>
-				<button
-					class="btn bg-white border border-slate-200 text-slate-600 font-semibold py-3 px-6 rounded-xl hover:bg-slate-50 transition cursor-pointer flex items-center justify-center gap-2"
-					@click="printInvoice()"
-				>
-					<svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
-					</svg>
-					{{ __('Imprimir Ticket') }}
-				</button>
-			</div>
-		</div>
-
-		<!-- ── Error Screen ──────────────────────────────────────────────── -->
-		<div v-else-if="activeScreen === 'payment_error'" class="mt-4 flex flex-col items-center justify-center p-8 bg-white border border-slate-200 rounded-3xl shadow-xl max-w-2xl mx-auto text-center animate-fade-in">
-			<div class="w-20 h-20 mx-auto rounded-full bg-rose-500 flex items-center justify-center text-white mb-6 shadow-lg shadow-rose-500/20 animate-pulse">
-				<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
-				</svg>
-			</div>
-
-			<h2 class="text-3xl font-black text-slate-800 tracking-tight mb-2">
-				{{ __('Error en el Pago') }}
-			</h2>
-			<p class="text-sm text-slate-500 mb-6">
-				{{ __('No se ha podido confirmar el cobro.') }}
-			</p>
-
-			<button
-				class="w-full btn bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 px-6 rounded-xl transition shadow-sm cursor-pointer"
-				@click="activeScreen = 'checkout'"
-			>
-				{{ __('Volver a Intentar') }}
-			</button>
-		</div>
+		<!-- ── Multi-step Payment Dialog ────────────────────────────────── -->
+		<PaymentDialog
+			v-if="activeScreen !== 'sale'"
+			:active-screen="activeScreen"
+			:payment-methods="paymentMethods"
+			:selected-payment-method="selectedPaymentMethod"
+			:display-input="displayPaymentInput"
+			:paid-amount="paymentAmount"
+			:cart-total="cartTotal"
+			:payment-due="paymentDue"
+			:can-confirm-payment="canConfirmPayment"
+			:currency="currency"
+			:invoice-to-pay="invoiceToPay"
+			:success-invoice="successInvoice"
+			:success-total="successTotal"
+			:pos-ctx="posCtx"
+			@update:selectedPaymentMethod="selectedPaymentMethod = $event"
+			@pressKey="appendPaymentKey"
+			@backspace="removeLastPaymentKey"
+			@setExactAmount="setExactAmount"
+			@back="backToSaleScreen"
+			@confirm="confirmPayment"
+			@confirmPaymentEntry="confirmPaymentEntry"
+			@cancelInvoice="cancelUnpaidInvoice"
+			@changeMethod="changePaymentMethod"
+			@print="printInvoice"
+			@newSale="backToSaleScreen"
+		/>
 
 		<!-- ── Modals ─────────────────────────────────────────────────────── -->
 
@@ -253,7 +136,7 @@ import type { PosContext } from '../types';
 import PosHeader from '../components/PosHeader.vue';
 import ProductCatalog from '../components/ProductCatalog.vue';
 import PosCart from '../components/PosCart.vue';
-import PaymentPad from '../components/PaymentPad.vue';
+import PaymentDialog from '../components/PaymentDialog.vue';
 
 // New modular components
 import SessionStatusBar from '../components/SessionStatusBar.vue';
@@ -276,7 +159,7 @@ export default defineComponent({
 		PosHeader,
 		ProductCatalog,
 		PosCart,
-		PaymentPad,
+		PaymentDialog,
 		SessionStatusBar,
 		PluginSlot,
 		StartupModal,
@@ -513,13 +396,17 @@ export default defineComponent({
 		const sendDisplayUpdate = () => {
 			if (!state.value.enable_customer_display) return;
 			broadcastToDisplay('UPDATE_DISPLAY', {
-				activeScreen: activeScreen.value,
+				activeScreen: activeScreen.value === 'sale' && cartItems.value.length === 0
+					? 'idle'
+					: (activeScreen.value === 'selectPaymentMode' ? 'payment' : activeScreen.value),
 				items: cartItems.value,
 				total: cartTotal.value,
 				currency: currency.value,
 				paymentMethod: selectedPaymentMethod.value,
 				paymentDue: paymentDue.value,
 				qrCode: qrCode.value,
+				cashReceived: paymentAmount.value,
+				changeAmount: Math.max(paymentAmount.value - cartTotal.value, 0),
 				config: {
 					primary_color: state.value.primary_color,
 					customer_display_media: state.value.customer_display_media,
@@ -555,7 +442,7 @@ export default defineComponent({
 			}, 1500);
 		};
 
-		watch([cartItems, cartTotal, activeScreen, selectedPaymentMethod, paymentDue, qrCode], () => {
+		watch([cartItems, cartTotal, activeScreen, selectedPaymentMethod, paymentAmount, paymentDue, qrCode], () => {
 			sendDisplayUpdate();
 		}, { deep: true });
 
@@ -654,12 +541,6 @@ export default defineComponent({
 .enhanced-pos-vue {
 	background: linear-gradient(130deg, #f7f9f5 0%, #ebf4ef 100%);
 	transition: background 0.3s ease;
-}
-.theme-ocean {
-	background: linear-gradient(130deg, #f5f9fb 0%, #e5f0f5 100%);
-}
-.theme-sun {
-	background: linear-gradient(130deg, #fffaf3 0%, #fff0df 100%);
 }
 .animate-fade-in {
 	animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;

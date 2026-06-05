@@ -11,7 +11,6 @@ const DEFAULT_STATE: POSState = {
 	auto_create_delivery_note: 0,
 	enhanced_pos_settings: '',
 	visual_settings_defaults: {
-		theme: 'forest',
 		compact_mode: 0,
 		show_images: 1,
 		show_stock: 1,
@@ -36,7 +35,6 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 	const state = ref<POSState>({ ...DEFAULT_STATE });
 
 	const visualSettings = ref<VisualSettings>({
-		theme: 'forest',
 		compact_mode: 0,
 		show_images: 1,
 		show_stock: 1,
@@ -49,7 +47,6 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 	// ── Computed ─────────────────────────────────────────────────────
 	const hasOpenSession = computed(() => (state.value.opening_entries || []).length > 0);
 	const currentOpening = computed(() => (state.value.opening_entries || [])[0] || null);
-	const themeClass = computed(() => `theme-${visualSettings.value.theme || 'forest'}`);
 	const compactClass = computed(() => visualSettings.value.compact_mode ? 'compact' : '');
 	const currency = computed(
 		() =>
@@ -84,7 +81,6 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 			} catch { stored = {}; }
 
 			visualSettings.value = {
-				theme: (stored.theme as string) || state.value.visual_settings_defaults.theme || 'forest',
 				compact_mode: Number(stored.compact_mode ?? state.value.visual_settings_defaults.compact_mode ?? 0),
 				show_images: Number(stored.show_images ?? state.value.visual_settings_defaults.show_images ?? 1),
 				show_stock: Number(stored.show_stock ?? state.value.visual_settings_defaults.show_stock ?? 1),
