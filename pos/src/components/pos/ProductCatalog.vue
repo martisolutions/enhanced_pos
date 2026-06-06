@@ -126,9 +126,9 @@
 
 <script lang="ts">
 import { defineComponent, ref, watch, onUnmounted } from 'vue';
-import type { Product } from '../types';
+import type { Product } from '../../types';
 import AppLinkField from './AppLinkField.vue';
-import { __ } from '../utils/i18n';
+import { __ } from '../../utils/i18n';
 
 export default defineComponent({
 	name: 'ProductCatalog',

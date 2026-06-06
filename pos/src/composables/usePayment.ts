@@ -23,7 +23,8 @@ export function usePayment(
 	call: (...args: any[]) => Promise<any>,
 ) {
 	// ── State ─────────────────────────────────────────────────────────
-	const activeScreen = ref<'sale' | 'payment' | 'selectPaymentMode' | 'checkout' | 'success' | 'payment_ok' | 'payment_error'>('sale');
+	const activeScreen = ref<'idle' | 'itemSelection' | 'selectingPaymentMethod' | 'paymentCheckout' | 'processingPayment' | 'paymentSuccessful' | 'paymentFailed'>('itemSelection');
+	const processingStep = ref<number>(3);
 	const paymentMethods = ref<string[]>([]);
 	const selectedPaymentMethod = ref('');
 	const paymentInput = ref('0');
@@ -134,12 +135,12 @@ export function usePayment(
 		if (!cart.value.length) { alert(__('Agrega productos al carrito.')); return; }
 		await loadPaymentMethods();
 		paymentInput.value = String(expectedPaymentTotal.value.toFixed(2));
-		activeScreen.value = 'selectPaymentMode';
+		activeScreen.value = 'selectingPaymentMethod';
 	};
 
 	/** Returns to the sale screen. */
 	const backToSaleScreen = (): void => {
-		activeScreen.value = 'sale';
+		activeScreen.value = 'itemSelection';
 	};
 
 	// ── Confirm payment mode (Step 1 -> Step 2) ─────────────────────────
@@ -164,7 +165,7 @@ export function usePayment(
 			});
 			if (!allowed) return;
 
-			activeScreen.value = 'checkout';
+			activeScreen.value = 'paymentCheckout';
 		} catch (e: any) {
 			alert(e.message || __('Error al confirmar el método de pago.'));
 		}
@@ -180,6 +181,9 @@ export function usePayment(
 		const method = selectedPaymentMethod.value;
 		const amount = paymentAmount.value;
 
+		activeScreen.value = 'processingPayment';
+		processingStep.value = 3;
+
 		try {
 			// 1. Run beforePayment hook (plugins can cancel the checkout)
 			const allowed = await PluginService.triggerBeforePayment({
@@ -187,7 +191,12 @@ export function usePayment(
 				mode_of_payment: method,
 				paid_amount: amount,
 			});
-			if (!allowed) return;
+			if (!allowed) {
+				activeScreen.value = 'paymentCheckout';
+				return;
+			}
+
+			processingStep.value = 4;
 
 			let result;
 			if (invoiceToPay.value?.name) {
@@ -229,7 +238,7 @@ export function usePayment(
 			clearCart();
 			paymentInput.value = '0';
 			invoiceToPay.value = null;
-			activeScreen.value = 'payment_ok';
+			activeScreen.value = 'paymentSuccessful';
 
 
 
@@ -243,18 +252,18 @@ export function usePayment(
 			}
 			await PluginService.triggerAfterPayment(result);
 		} catch (e: any) {
-			activeScreen.value = 'payment_error';
+			activeScreen.value = 'paymentFailed';
 			alert(e.message || __('Error al confirmar el cobro.'));
 		}
 	};
 
 	const cancelUnpaidInvoice = async (): Promise<void> => {
 		invoiceToPay.value = null;
-		activeScreen.value = 'sale';
+		activeScreen.value = 'itemSelection';
 	};
 
 	const changePaymentMethod = (): void => {
-		activeScreen.value = 'selectPaymentMode';
+		activeScreen.value = 'selectingPaymentMethod';
 	};
 
 	const printInvoice = (invoiceName?: string): void => {
@@ -279,6 +288,7 @@ export function usePayment(
 	return {
 		// State
 		activeScreen,
+		processingStep,
 		paymentMethods,
 		selectedPaymentMethod,
 		paymentInput,

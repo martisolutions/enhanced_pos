@@ -387,4 +387,78 @@ class TestEnhancedPOSApi(FrappeTestCase):
 			enhanced_pos.api.pos.get_payment_entry = original_gpe
 
 
+	def test_get_any_invoice_details(self):
+		"""Test that get_any_invoice_details returns doctype, grand_total, outstanding_amount, etc."""
+		from unittest.mock import MagicMock
+		from enhanced_pos.api.pos import get_any_invoice_details
+		
+		mock_invoice = MagicMock()
+		mock_invoice.name = "ACC-SINV-2026-99999"
+		mock_invoice.doctype = "Sales Invoice"
+		mock_invoice.docstatus = 1
+		mock_invoice.grand_total = 150.0
+		mock_invoice.outstanding_amount = 0.0  # Paid
+		mock_invoice.currency = "EUR"
+		mock_invoice.customer = "Cust 1"
+		mock_invoice.customer_name = "Customer One"
+		
+		mock_item = MagicMock()
+		mock_item.item_code = "ITEM-001"
+		mock_item.item_name = "Item One"
+		mock_item.description = "Test Item"
+		mock_item.rate = 50.0
+		mock_item.qty = 3
+		mock_item.amount = 150.0
+		
+		mock_invoice.items = [mock_item]
+
+		original_get_doc = frappe.get_doc
+		frappe.get_doc = lambda doctype, name: mock_invoice if doctype == "Sales Invoice" else original_get_doc(doctype, name)
+		
+		try:
+			res = get_any_invoice_details("ACC-SINV-2026-99999", "Sales Invoice")
+			self.assertEqual(res["name"], "ACC-SINV-2026-99999")
+			self.assertEqual(res["doctype"], "Sales Invoice")
+			self.assertEqual(res["grand_total"], 150.0)
+			self.assertEqual(res["outstanding_amount"], 0.0)
+			self.assertEqual(len(res["items"]), 1)
+			self.assertEqual(res["items"][0]["item_code"], "ITEM-001")
+			self.assertEqual(res["items"][0]["qty"], 3)
+		finally:
+			frappe.get_doc = original_get_doc
+
+	def test_get_recent_orders_pagination(self):
+		"""Test that get_recent_orders queries Sales Invoice with pagination, offset, and correct filters"""
+		from enhanced_pos.api.pos import get_recent_orders
+		from unittest.mock import patch
+
+		with patch("frappe.get_all") as mock_get_all:
+			mock_get_all.return_value = [
+				{"name": f"INV-2026-{i}", "grand_total": 100.0, "outstanding_amount": 0.0}
+				for i in range(21)
+			]
+
+			res = get_recent_orders(status="Paid", search_term="Cust", page=2, limit=20)
+
+			mock_get_all.assert_called_once()
+			kwargs = mock_get_all.call_args[1]
+
+			self.assertEqual(kwargs["limit_start"], 20)
+			self.assertEqual(kwargs["limit_page_length"], 21)
+			self.assertEqual(kwargs["order_by"], "posting_date desc, posting_time desc, creation desc")
+			
+			filters = kwargs["filters"]
+			self.assertIn(["docstatus", "=", 1], filters)
+			self.assertIn(["outstanding_amount", "=", 0], filters)
+			self.assertIn(["is_return", "=", 0], filters)
+
+			or_filters = kwargs["or_filters"]
+			self.assertIn(["name", "like", "%Cust%"], or_filters)
+			
+			self.assertEqual(len(res), 21)
+			self.assertEqual(res[0]["doctype"], "Sales Invoice")
+
+
+
+
 

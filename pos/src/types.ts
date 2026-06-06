@@ -119,7 +119,7 @@ export interface PosContext {
 	broadcastToDisplay: (type: string, payload: any) => void;
 	// New checkout fields and methods
 	invoiceToPay: any;
-	activeScreen: 'sale' | 'payment' | 'selectPaymentMode' | 'checkout' | 'success' | 'payment_ok' | 'payment_error';
+	activeScreen: 'idle' | 'itemSelection' | 'selectingPaymentMethod' | 'paymentCheckout' | 'processingPayment' | 'paymentSuccessful' | 'paymentFailed';
 	paymentMethod: string;
 	paymentAmount: number;
 	confirmPaymentEntry: (paymentEntryData?: any) => Promise<void>;
@@ -128,6 +128,19 @@ export interface PosContext {
 	setQrCode: (url: string | null) => void;
 	printFormat: string | null;
 	printInvoice: (invoiceName?: string) => void;
+}
+
+export interface PaymentMethodConfig {
+	type: 'cash' | 'card' | 'plugin';
+	requiresKeypad: boolean;
+	showChange: boolean;
+	validateExactAmount?: boolean;
+	validateConfirm?: (amount: number, total: number) => boolean;
+	inputLabel?: string;
+	changeLabel?: string;
+	formatInput?: (rawVal: string) => string;
+	formatChange?: (changeVal: number) => string;
+	hideConfirmButton?: boolean;
 }
 
 /**
@@ -147,6 +160,10 @@ export interface PosPlugin {
 	// ── UI extension ────────────────────────────────────────────────
 	/** Vue component to render inside a PluginSlot for UIHooks */
 	component?: any;
+	/** Vue component to render on the Customer Display for payment checkout screen */
+	customerComponent?: any;
+	/** Payment capabilities configuration (only for hook: 'new_payment_method') */
+	paymentConfig?: PaymentMethodConfig;
 	/**
 	 * Factory that returns props to pass to the component.
 	 * Receives the live PosContext so props stay reactive.

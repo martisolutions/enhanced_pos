@@ -97,8 +97,8 @@
 
 <script lang="ts">
 import { defineComponent, computed, ref } from 'vue';
-import PluginService from '../services/plugins';
-import { __ } from '../utils/i18n';
+import PluginService from '../../services/plugins';
+import { __ } from '../../utils/i18n';
 
 export default defineComponent({
 	name: 'PosHeader',

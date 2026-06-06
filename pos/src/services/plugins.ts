@@ -165,6 +165,44 @@ class PluginRegistry {
 			}
 		}
 	}
+
+	/**
+	 * Resolves the active payment plugin by matching its name (case-insensitive).
+	 * Supports smart name-based fallbacks to Cash and Card plugins.
+	 */
+	public getPaymentPlugin(name: string): PosPlugin | null {
+		if (!name) return null;
+		const key = name.toLowerCase();
+
+		// 1. Direct name match
+		const direct = this.state.plugins.find(
+			p => p.hook === 'new_payment_method' && p.name.toLowerCase() === key
+		);
+		if (direct) return direct;
+
+		// 2. Fallbacks for cash names
+		const isCash = key.includes('cash') || key.includes('efectivo') || key.includes('dinero') || key.includes('caja');
+		if (isCash) {
+			const cashPlugin = this.state.plugins.find(
+				p => p.hook === 'new_payment_method' && p.name.toLowerCase() === 'cash'
+			);
+			if (cashPlugin) return cashPlugin;
+		}
+
+		// 3. Fallbacks for card names
+		const isCard = key.includes('card') || key.includes('tarjeta') || key.includes('credit') || key.includes('débito') || key.includes('debito');
+		if (isCard) {
+			const cardPlugin = this.state.plugins.find(
+				p => p.hook === 'new_payment_method' && p.name.toLowerCase() === 'credit card'
+			);
+			if (cardPlugin) return cardPlugin;
+		}
+
+		// 4. Default fallback to Credit Card plugin
+		return this.state.plugins.find(
+			p => p.hook === 'new_payment_method' && p.name.toLowerCase() === 'credit card'
+		) || null;
+	}
 }
 
 // ──────────────────────────────────────────────────────────
@@ -180,13 +218,8 @@ const PluginService = new PluginRegistry();
 
 /**
  * Register a plugin from any external JS file.
- * @example
- * window.EnhancedPos.registerPlugin({
- *   name: 'my-plugin',
- *   hook: 'catalog_panel',
- *   component: MyVueComponent,
- * });
  */
 (window as any).EnhancedPos.registerPlugin = (plugin: PosPlugin) => PluginService.register(plugin);
+(window as any).EnhancedPos.getPaymentPlugin = (name: string) => PluginService.getPaymentPlugin(name);
 
 export default PluginService;

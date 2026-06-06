@@ -9,6 +9,7 @@ import resourceManager from "../../../doppio/libs/resourceManager";
 import call from "../../../doppio/libs/controllers/call";
 import socket from "../../../doppio/libs/controllers/socket";
 import Auth from "../../../doppio/libs/controllers/auth";
+import './plugins';
 
 const app = createApp(App);
 const auth = reactive(new Auth());

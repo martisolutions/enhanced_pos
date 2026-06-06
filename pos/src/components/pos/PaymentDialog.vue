@@ -24,7 +24,7 @@
 				<!-- Step indicators -->
 				<div class="flex items-center gap-2">
 					<div
-						v-for="step in [1, 2, 3]"
+						v-for="step in [1, 2, 3, 4]"
 						:key="step"
 						class="flex items-center"
 					>
@@ -42,7 +42,7 @@
 							<span v-else>{{ step }}</span>
 						</div>
 						<div
-							v-if="step < 3"
+							v-if="step < 4"
 							:class="[
 								'w-12 h-1 rounded-full mx-1 transition-all duration-300',
 								getCurrentStep() > step ? 'bg-emerald-500' : 'bg-slate-100'
@@ -57,7 +57,7 @@
 				<transition name="fade-slide" mode="out-in">
 					
 					<!-- ── STEP 1: Select Payment Mode ──────────────────────── -->
-					<div v-if="activeScreen === 'selectPaymentMode'" key="step-select" class="flex flex-col gap-6">
+					<div v-if="activeScreen === 'selectingPaymentMethod'" key="step-select" class="flex flex-col gap-6">
 						<h4 class="font-bold text-slate-800 text-base tracking-tight text-center sm:text-left">
 							{{ __('Selecciona el método de pago:') }}
 						</h4>
@@ -84,11 +84,11 @@
 								<!-- SVG Icon Wrapper -->
 								<div :class="['w-16 h-16 rounded-2xl flex items-center justify-center transition-colors', selectedMethod === method.value ? 'bg-indigo-100/50 text-indigo-600' : 'bg-slate-50 text-slate-400']">
 									<!-- Cash Icon -->
-									<svg v-if="isCash(method.value)" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<svg v-if="getMethodType(method.value) === 'cash'" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
 									</svg>
 									<!-- Card Icon -->
-									<svg v-else-if="isCard(method.value)" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<svg v-else-if="getMethodType(method.value) === 'card'" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
 									</svg>
 									<!-- Plugin/Other Icon -->
@@ -98,7 +98,7 @@
 								</div>
 								
 								<span :class="['text-sm font-bold text-center tracking-tight', selectedMethod === method.value ? 'text-indigo-900 font-black' : 'text-slate-700']">
-									{{ method.label }}
+									{{ __(method.label) }}
 								</span>
 							</div>
 						</div>
@@ -108,122 +108,50 @@
 						</div>
 					</div>
 
-					<!-- ── STEP 2: Checkout Details (Keypad / Card intent) ──────── -->
-					<div v-else-if="activeScreen === 'checkout'" key="step-checkout">
-						<div class="grid grid-cols-1 md:grid-cols-12 gap-8">
-							
-							<!-- Details Left Pane (Centered 8 columns if not Cash, otherwise 6 columns) -->
-							<div :class="isCash(selectedMethod) ? 'md:col-span-6 flex flex-col gap-6' : 'md:col-span-8 md:col-start-3 flex flex-col gap-6'">
-								
-								<!-- Amount Display Card -->
-								<div class="bg-slate-50 border border-slate-100 rounded-3xl p-6 flex flex-col gap-4">
-									<div>
-										<span class="text-xs font-bold uppercase tracking-wider text-slate-400">
-											{{ __('Total a pagar') }}
-										</span>
-										<h2 class="text-3xl font-black text-slate-800 tracking-tight leading-none mt-1 font-mono">
-											{{ fmtMoney(cartTotal) }}
-										</h2>
-									</div>
+					<!-- ── STEP 2: Checkout Details (Plugin UI Injection) ──────── -->
+					<div v-else-if="activeScreen === 'paymentCheckout'" key="step-checkout">
+						<div v-if="activePaymentPlugin && activePaymentPlugin.component" class="w-full">
+							<component
+								:is="activePaymentPlugin.component"
+								:display-input="formattedDisplayInput"
+								:paid-amount="paidAmount"
+								:cart-total="cartTotal"
+								:payment-due="paymentDue"
+								:currency="currency"
+								:pos-ctx="posCtx"
+								@pressKey="$emit('pressKey', $event)"
+								@backspace="$emit('backspace')"
+								@setExactAmount="$emit('setExactAmount')"
+								@success="$emit('confirmPaymentEntry')"
+							/>
+						</div>
 
-									<div class="border-t border-slate-200/60 pt-4 flex flex-col gap-2.5 text-sm">
-										<div class="flex justify-between">
-											<span class="text-slate-400 font-medium">{{ __('Método de Pago:') }}</span>
-											<span class="font-bold text-slate-700">{{ selectedMethod }}</span>
-										</div>
-										<!-- Show input and change ONLY for Cash -->
-										<template v-if="isCash(selectedMethod)">
-											<div class="flex justify-between items-center bg-white border border-slate-100 rounded-xl p-2.5 shadow-sm mt-1">
-												<span class="text-slate-400 font-medium pl-1">{{ __('Efectivo Recibido:') }}</span>
-												<span class="font-black text-indigo-600 font-mono text-xl">{{ displayInput }}</span>
-											</div>
-											<div class="flex justify-between mt-1 text-base font-bold">
-												<span class="text-slate-500">{{ __('Cambio a devolver:') }}</span>
-												<span class="font-mono text-emerald-600 font-black">
-													{{ fmtMoney(Math.max(paidAmount - cartTotal, 0)) }}
-												</span>
-											</div>
-										</template>
-									</div>
-								</div>
+						<!-- Fallback slot if the resolved plugin has no checkout component -->
+						<div v-else class="max-w-xl mx-auto flex flex-col gap-6">
+							<PluginSlot hook="checkout_panel" :ctx="posCtx" />
+							<PluginSlot hook="payment_panel" :ctx="posCtx" />
 
-								<!-- Integration Section for Cards / External Plugins -->
-								<div v-if="!isCash(selectedMethod)" class="flex-grow flex flex-col justify-center">
-									<!-- Dynamic Payment Method Plugin component -->
-									<div v-if="activePaymentPlugin && activePaymentPlugin.component" class="w-full">
-										<component
-											:is="activePaymentPlugin.component"
-											:amount="paidAmount"
-											:cart-total="cartTotal"
-											:pending="paymentDue"
-											@success="$emit('confirmPaymentEntry')"
-										/>
-									</div>
-									
-									<!-- Card Simulation placeholder -->
-									<div v-else-if="isCard(selectedMethod)" class="bg-indigo-50/15 border border-indigo-100/50 rounded-3xl p-8 flex flex-col items-center justify-center text-center">
-										<div class="w-16 h-16 rounded-full bg-indigo-50/30 flex items-center justify-center text-indigo-600 mb-4 animate-pulse">
-											<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-											</svg>
-										</div>
-										<p class="font-bold text-slate-700 text-sm">
-											{{ __('Por favor, pulse en confirmar pago cuando se haya completado la transacción.') }}
-										</p>
-									</div>
-
-									<!-- Other general plugin display slots -->
-									<div v-else class="w-full flex flex-col gap-4">
-										<PluginSlot hook="checkout_panel" :ctx="posCtx" />
-										<PluginSlot hook="payment_panel" :ctx="posCtx" />
-										
-										<div class="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center text-slate-500 text-xs leading-relaxed">
-											{{ __('Este método de pago cuenta con una extensión modular o integración externa.') }}
-										</div>
-									</div>
-								</div>
-
+							<div class="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center text-slate-500 text-xs leading-relaxed">
+								{{ __('Este método de pago no cuenta con una interfaz de checkout registrada.') }}
 							</div>
-
-							<!-- Keypad Right Pane (Only for Cash) -->
-							<div v-if="isCash(selectedMethod)" class="md:col-span-6 flex flex-col gap-4">
-								<div class="flex gap-2 items-center">
-									<div class="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3 text-right text-2xl font-bold text-slate-800 font-mono select-none">
-										{{ displayInput }}
-									</div>
-									<button
-										type="button"
-										class="w-12 h-12 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl flex items-center justify-center transition cursor-pointer select-none active:scale-95"
-										@click="$emit('backspace')"
-									>
-										⌫
-									</button>
-								</div>
-
-								<div class="grid grid-cols-3 gap-2">
-									<button
-										v-for="key in keypadKeys"
-										:key="key"
-										class="border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 p-4 rounded-xl font-black text-lg transition cursor-pointer select-none active:scale-95 shadow-sm"
-										@click="$emit('pressKey', key)"
-									>
-										{{ key }}
-									</button>
-								</div>
-
-								<button
-									class="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3 rounded-xl font-bold text-sm transition cursor-pointer select-none active:scale-95 shadow-sm w-full"
-									@click="$emit('setExactAmount')"
-								>
-									{{ __('Importe exacto') }}
-								</button>
-							</div>
-
 						</div>
 					</div>
 
+					<!-- ── STEP: Processing Payment (Async loading screen) ───── -->
+					<div v-else-if="activeScreen === 'processingPayment'" key="step-processing" class="flex flex-col items-center justify-center py-12 text-center">
+						<div class="w-16 h-16 rounded-full border-4 border-slate-200 border-t-indigo-600 animate-spin mb-6"></div>
+						<h3 class="text-2xl font-black text-slate-800 tracking-tight">
+							{{ processingStep === 4 ? __('Registrando Factura...') : __('Procesando Pago...') }}
+						</h3>
+						<p class="text-slate-400 mt-2 text-sm leading-relaxed max-w-sm">
+							{{ processingStep === 4 
+								? __('Guardando y enviando la factura a ERPNext. Por favor, no cierre la aplicación.')
+								: __('Comunicando con la pasarela de pago y verificando la transacción.') }}
+						</p>
+					</div>
+
 					<!-- ── STEP 3: Payment OK (Success screen) ────────────────── -->
-					<div v-else-if="activeScreen === 'payment_ok'" key="step-success" class="flex flex-col items-center justify-center py-6 text-center">
+					<div v-else-if="activeScreen === 'paymentSuccessful'" key="step-success" class="flex flex-col items-center justify-center py-6 text-center">
 						<div class="w-20 h-20 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/25 animate-pop">
 							<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
@@ -250,7 +178,7 @@
 					</div>
 
 					<!-- ── STEP: Error (Failed screen) ────────────────────────── -->
-					<div v-else-if="activeScreen === 'payment_error'" key="step-error" class="flex flex-col items-center justify-center py-6 text-center">
+					<div v-else-if="activeScreen === 'paymentFailed'" key="step-error" class="flex flex-col items-center justify-center py-6 text-center">
 						<div class="w-20 h-20 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-500/25 animate-pulse">
 							<svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
@@ -275,7 +203,7 @@
 				<div>
 					<!-- Cancel / Close for Step 1 -->
 					<button
-						v-if="activeScreen === 'selectPaymentMode'"
+						v-if="activeScreen === 'selectingPaymentMethod'"
 						class="btn bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 font-bold py-2.5 px-6 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-sm text-sm"
 						@click="$emit('back')"
 					>
@@ -284,7 +212,7 @@
 
 					<!-- Go back to Step 1 from Step 2 -->
 					<button
-						v-else-if="activeScreen === 'checkout'"
+						v-else-if="activeScreen === 'paymentCheckout'"
 						class="btn bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 font-bold py-2.5 px-6 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-sm text-sm"
 						@click="$emit('changeMethod')"
 					>
@@ -296,7 +224,7 @@
 				<div>
 					<!-- Step 1 Next button -->
 					<button
-						v-if="activeScreen === 'selectPaymentMode'"
+						v-if="activeScreen === 'selectingPaymentMethod'"
 						class="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-8 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-md shadow-indigo-600/10 text-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
 						:disabled="!selectedMethod"
 						@click="confirmMode"
@@ -304,20 +232,25 @@
 						{{ __('Siguiente') }}
 					</button>
 
-					<!-- Step 2 Finalize purchase (only if not handled inside a custom component) -->
+					<!-- Step 2 Finalize purchase -->
 					<button
-						v-else-if="activeScreen === 'checkout' && !hasActivePluginComponent"
+						v-else-if="activeScreen === 'paymentCheckout' && !activePaymentPlugin?.paymentConfig?.hideConfirmButton"
 						class="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-8 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-md shadow-indigo-600/10 text-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
-						:disabled="isCash(selectedMethod) ? paidAmount < cartTotal : false"
+						:disabled="isConfirmDisabled"
 						@click="$emit('confirmPaymentEntry')"
 					>
 						{{ __('Confirmar pago') }}
 					</button>
 
 					<!-- Step 3 actions (Receipt printing & new transaction) -->
-					<div v-else-if="activeScreen === 'payment_ok'" class="flex gap-3">
+					<div v-else-if="activeScreen === 'paymentSuccessful'" class="flex gap-3">
 						<button
-							class="btn bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600 font-bold py-2.5 px-5 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-sm text-sm flex items-center gap-2"
+							:class="[
+								'btn font-bold py-2.5 px-5 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-sm text-sm flex items-center gap-2',
+								focusedStep3Option === 'print'
+									? 'bg-slate-100 border border-indigo-500 ring-2 ring-indigo-500 text-indigo-700'
+									: 'bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-600'
+							]"
 							@click="$emit('print')"
 						>
 							<svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -326,7 +259,12 @@
 							{{ __('Imprimir Ticket') }}
 						</button>
 						<button
-							class="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-8 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-md shadow-indigo-600/10 text-sm font-black"
+							:class="[
+								'btn font-bold py-2.5 px-8 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-md text-sm font-black',
+								focusedStep3Option === 'newSale'
+									? 'bg-indigo-700 ring-2 ring-indigo-500 ring-offset-2 text-white shadow-indigo-600/20'
+									: 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/10'
+							]"
 							@click="$emit('newSale')"
 						>
 							{{ __('Nueva Venta') }}
@@ -335,7 +273,7 @@
 
 					<!-- Error state Retry -->
 					<button
-						v-else-if="activeScreen === 'payment_error'"
+						v-else-if="activeScreen === 'paymentFailed'"
 						class="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-8 rounded-xl transition cursor-pointer select-none active:scale-95 shadow-md shadow-indigo-600/10 text-sm font-black"
 						@click="$emit('changeMethod')"
 					>
@@ -350,11 +288,11 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, computed } from 'vue';
+import { defineComponent, computed, ref, onMounted, onUnmounted } from 'vue';
 import type { PropType } from 'vue';
-import type { PosContext } from '../types';
-import PluginSlot from './PluginSlot.vue';
-import PluginService from '../services/plugins';
+import type { PosContext } from '../../types';
+import PluginSlot from '../PluginSlot.vue';
+import PluginService from '../../services/plugins';
 
 export interface MethodOption {
 	value: string;
@@ -369,7 +307,7 @@ export default defineComponent({
 	},
 	props: {
 		activeScreen: {
-			type: String as PropType<'sale' | 'payment' | 'selectPaymentMode' | 'checkout' | 'success' | 'payment_ok' | 'payment_error'>,
+			type: String as PropType<'idle' | 'itemSelection' | 'selectingPaymentMethod' | 'paymentCheckout' | 'processingPayment' | 'paymentSuccessful' | 'paymentFailed'>,
 			required: true,
 		},
 		paymentMethods: {
@@ -421,6 +359,10 @@ export default defineComponent({
 			type: Object as PropType<PosContext>,
 			required: true,
 		},
+		processingStep: {
+			type: Number,
+			default: 3,
+		},
 	},
 	emits: [
 		'update:selectedPaymentMethod',
@@ -450,38 +392,37 @@ export default defineComponent({
 			},
 		});
 
-		// Check helper functions
-		const isCash = (method: string): boolean => {
-			if (!method) return false;
-			const m = method.toLowerCase();
-			return m.includes('cash') || m.includes('efectivo') || m.includes('dinero');
-		};
-
-		const isCard = (method: string): boolean => {
-			if (!method) return false;
-			const m = method.toLowerCase();
-			return m.includes('card') || m.includes('tarjeta') || m.includes('credit') || m.includes('débito') || m.includes('debito');
+		const getMethodType = (method: string): 'cash' | 'card' | 'plugin' => {
+			const plugin = PluginService.getPaymentPlugin(method);
+			return plugin?.paymentConfig?.type || 'plugin';
 		};
 
 		// Stepper helpers
 		const getCurrentStep = (): number => {
-			if (props.activeScreen === 'selectPaymentMode') return 1;
-			if (props.activeScreen === 'checkout' || props.activeScreen === 'payment_error') return 2;
-			if (props.activeScreen === 'payment_ok') return 3;
+			if (props.activeScreen === 'selectingPaymentMethod') return 1;
+			if (props.activeScreen === 'paymentCheckout') return 2;
+			if (props.activeScreen === 'processingPayment') return 3;
+			if (props.activeScreen === 'paymentSuccessful' || props.activeScreen === 'paymentFailed') return 4;
 			return 1;
 		};
 
 		const getStepSubtitle = (): string => {
-			if (props.activeScreen === 'selectPaymentMode') return __('Selecciona el formato de pago');
-			if (props.activeScreen === 'checkout') return __('Completa y confirma el importe');
-			if (props.activeScreen === 'payment_ok') return __('Transacción completada');
-			if (props.activeScreen === 'payment_error') return __('Ocurrió un error en el pago');
+			if (props.activeScreen === 'selectingPaymentMethod') return __('Selecciona el formato de pago');
+			if (props.activeScreen === 'paymentCheckout') return __('Completa y confirma el importe');
+			if (props.activeScreen === 'processingPayment') {
+				if (props.processingStep === 4) {
+					return __('Registrando factura en el servidor...');
+				}
+				return __('Verificando transacción...');
+			}
+			if (props.activeScreen === 'paymentSuccessful') return __('Transacción completada con éxito');
+			if (props.activeScreen === 'paymentFailed') return __('Ocurrió un error en el pago');
 			return '';
 		};
 
 		// Retrieve registered plugins for the payment method
 		const paymentPlugins = computed(() => {
-			return PluginService.getPluginsForHook('payment_method');
+			return PluginService.state.plugins.filter((p) => p.hook === 'new_payment_method');
 		});
 
 		const allPaymentMethods = computed<MethodOption[]>(() => {
@@ -505,11 +446,26 @@ export default defineComponent({
 		});
 
 		const activePaymentPlugin = computed(() => {
-			return paymentPlugins.value.find((p) => p.name === props.selectedPaymentMethod) || null;
+			return PluginService.getPaymentPlugin(props.selectedPaymentMethod);
 		});
 
-		const hasActivePluginComponent = computed(() => {
-			return !!(activePaymentPlugin.value && activePaymentPlugin.value.component);
+		const formattedDisplayInput = computed(() => {
+			const config = activePaymentPlugin.value?.paymentConfig;
+			if (config?.formatInput) {
+				return config.formatInput(props.displayInput);
+			}
+			return props.displayInput;
+		});
+
+		const isConfirmDisabled = computed(() => {
+			const config = activePaymentPlugin.value?.paymentConfig;
+			if (config?.validateConfirm) {
+				return !config.validateConfirm(props.paidAmount, props.cartTotal);
+			}
+			if (config?.validateExactAmount) {
+				return props.paidAmount < props.cartTotal;
+			}
+			return false;
 		});
 
 		const selectAndNext = (method: string) => {
@@ -528,20 +484,129 @@ export default defineComponent({
 			return `${Number(value || 0).toFixed(2)} ${props.currency}`;
 		};
 
+		const focusedStep3Option = ref<'print' | 'newSale'>('newSale');
+
+		const handleKeyDown = (e: KeyboardEvent) => {
+			const activeEl = document.activeElement;
+			if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') && activeEl.id !== 'managed-keypad-input') {
+				return;
+			}
+
+			// ── Escape Key (Back / Close) ──
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				if (props.activeScreen === 'selectingPaymentMethod') {
+					emit('back');
+				} else if (props.activeScreen === 'paymentCheckout') {
+					emit('changeMethod');
+				} else if (props.activeScreen === 'paymentSuccessful') {
+					emit('newSale');
+				} else if (props.activeScreen === 'paymentFailed') {
+					emit('changeMethod');
+				}
+				return;
+			}
+
+			// ── Enter Key (Confirm / Next) ──
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				if (props.activeScreen === 'selectingPaymentMethod') {
+					if (selectedMethod.value) {
+						confirmMode();
+					}
+				} else if (props.activeScreen === 'paymentCheckout') {
+					if (!isConfirmDisabled.value) {
+						emit('confirmPaymentEntry');
+					}
+				} else if (props.activeScreen === 'paymentSuccessful') {
+					if (focusedStep3Option.value === 'print') {
+						emit('print');
+					} else {
+						emit('newSale');
+					}
+				} else if (props.activeScreen === 'paymentFailed') {
+					emit('changeMethod');
+				}
+				return;
+			}
+
+			// ── Arrow Keys ──
+			if (props.activeScreen === 'selectingPaymentMethod') {
+				const methods = allPaymentMethods.value;
+				if (!methods.length) return;
+				const currentIndex = methods.findIndex(m => m.value === selectedMethod.value);
+
+				const cols = window.innerWidth >= 768 ? 3 : (window.innerWidth >= 640 ? 2 : 1);
+				let newIndex = currentIndex;
+
+				if (e.key === 'ArrowLeft') {
+					e.preventDefault();
+					newIndex = currentIndex - 1;
+				} else if (e.key === 'ArrowRight') {
+					e.preventDefault();
+					newIndex = currentIndex + 1;
+				} else if (e.key === 'ArrowUp') {
+					e.preventDefault();
+					newIndex = currentIndex - cols;
+				} else if (e.key === 'ArrowDown') {
+					e.preventDefault();
+					newIndex = currentIndex + cols;
+				} else {
+					return;
+				}
+
+				// Clamp and select
+				if (newIndex >= 0 && newIndex < methods.length) {
+					selectedMethod.value = methods[newIndex].value;
+				}
+				return;
+			}
+
+			if (props.activeScreen === 'paymentSuccessful') {
+				if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+					e.preventDefault();
+					focusedStep3Option.value = focusedStep3Option.value === 'print' ? 'newSale' : 'print';
+				}
+				return;
+			}
+
+			// ── Keypad Inputs (digits and backspace when in checkout cash) ──
+			const config = activePaymentPlugin.value?.paymentConfig;
+			if (props.activeScreen === 'paymentCheckout' && config?.requiresKeypad) {
+				if ((e.key >= '0' && e.key <= '9') || e.key === '.' || e.key === ',') {
+					e.preventDefault();
+					const char = e.key === ',' ? '.' : e.key;
+					emit('pressKey', char);
+				} else if (e.key === 'Backspace') {
+					e.preventDefault();
+					emit('backspace');
+				}
+			}
+		};
+
+		onMounted(() => {
+			window.addEventListener('keydown', handleKeyDown);
+		});
+
+		onUnmounted(() => {
+			window.removeEventListener('keydown', handleKeyDown);
+		});
+
 		return {
 			__,
 			keypadKeys,
 			selectedMethod,
 			allPaymentMethods,
 			activePaymentPlugin,
-			hasActivePluginComponent,
 			getCurrentStep,
 			getStepSubtitle,
-			isCash,
-			isCard,
+			getMethodType,
+			formattedDisplayInput,
+			isConfirmDisabled,
 			confirmMode,
 			selectAndNext,
 			fmtMoney,
+			focusedStep3Option,
 		};
 	},
 });

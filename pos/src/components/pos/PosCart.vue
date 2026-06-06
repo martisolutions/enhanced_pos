@@ -110,8 +110,8 @@
 
 <script lang="ts">
 import { defineComponent, computed } from 'vue';
-import type { CartItem, CartGroup, PosContext } from '../types';
-import PluginService from '../services/plugins';
+import type { CartItem, CartGroup, PosContext } from '../../types';
+import PluginService from '../../services/plugins';
 
 export default defineComponent({
 	name: 'PosCart',

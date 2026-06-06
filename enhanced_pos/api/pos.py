@@ -227,6 +227,34 @@ def get_sales_invoice_details(invoice_name):
 
 
 @frappe.whitelist()
+def get_any_invoice_details(invoice_name, doctype="Sales Invoice"):
+	doc = frappe.get_doc(doctype, invoice_name)
+	delivery_notes = sorted({d.delivery_note for d in doc.items if d.get("delivery_note")}) if doctype == "Sales Invoice" else []
+
+	return {
+		"name": doc.name,
+		"doctype": doc.doctype,
+		"docstatus": doc.docstatus,
+		"grand_total": flt(doc.grand_total),
+		"outstanding_amount": flt(doc.outstanding_amount),
+		"currency": doc.currency,
+		"delivery_notes": delivery_notes,
+		"customer": doc.customer,
+		"customer_name": doc.customer_name,
+		"items": [
+			{
+				"item_code": item.item_code,
+				"item_name": item.item_name,
+				"description": item.description,
+				"rate": flt(item.rate),
+				"qty": flt(item.qty),
+				"amount": flt(item.amount),
+			} for item in doc.items
+		],
+	}
+
+
+@frappe.whitelist()
 def create_invoice_payment_entry(invoice_name, mode_of_payment, paid_amount=None, create_delivery_note=0, payment_entry_data=None):
 	invoice = frappe.get_doc("Sales Invoice", invoice_name)
 	if invoice.docstatus != 1:
@@ -373,8 +401,49 @@ def create_invoice_with_payment(company, pos_profile, items, mode_of_payment, pa
 
 
 @frappe.whitelist()
-def get_recent_orders(status="Paid", search_term="", limit=20):
-	return get_past_order_list(search_term=search_term, status=status, limit=limit)
+def get_recent_orders(status="Paid", search_term="", page=1, limit=20):
+	page = frappe.utils.cint(page) or 1
+	limit = frappe.utils.cint(limit) or 20
+	offset = (page - 1) * limit
+	db_limit = limit + 1
+
+	filters = []
+	if status == "Draft":
+		filters.append(["docstatus", "=", 0])
+	elif status == "Partly Paid":
+		filters.append(["docstatus", "=", 1])
+		filters.append(["outstanding_amount", ">", 0])
+		filters.append(["is_return", "=", 0])
+	elif status == "Return":
+		filters.append(["docstatus", "=", 1])
+		filters.append(["is_return", "=", 1])
+	else: # Paid
+		filters.append(["docstatus", "=", 1])
+		filters.append(["outstanding_amount", "=", 0])
+		filters.append(["is_return", "=", 0])
+
+	or_filters = []
+	if search_term:
+		or_filters = [
+			["name", "like", f"%{search_term}%"],
+			["customer", "like", f"%{search_term}%"],
+			["customer_name", "like", f"%{search_term}%"]
+		]
+
+	invoices = frappe.get_all(
+		"Sales Invoice",
+		filters=filters,
+		or_filters=or_filters,
+		fields=["name", "grand_total", "currency", "customer", "customer_name", "posting_time", "posting_date", "docstatus", "outstanding_amount"],
+		order_by="posting_date desc, posting_time desc, creation desc",
+		limit_start=offset,
+		limit_page_length=db_limit
+	)
+
+	for inv in invoices:
+		inv["doctype"] = "Sales Invoice"
+
+	return invoices
 
 
 @frappe.whitelist()

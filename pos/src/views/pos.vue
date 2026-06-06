@@ -1,5 +1,5 @@
 <template>
-	<div class="enhanced-pos-vue min-h-screen p-6" :class="[themeClass, compactClass]">
+	<div class="enhanced-pos-vue min-h-screen p-6" :class="[compactClass]">
 
 		<!-- ── Header ──────────────────────────────────────────────────── -->
 		<PosHeader
@@ -10,7 +10,7 @@
 			:customer-display-connected="customerDisplayConnected"
 			@openInvoiceForm="openInvoiceForm"
 			@openInvoiceFetchDialog="handleOpenInvoiceFetchDialog"
-			@openRecentOrdersDialog="openRecentOrdersDialog"
+			@openRecentOrdersDialog="showRecentOrdersModal = true"
 			@openClosingEntry="openClosingEntry"
 			@activateCustomerDisplay="abrirPantallaCliente"
 		/>
@@ -28,7 +28,7 @@
 		<PluginSlot hook="sale_screen_top" :ctx="posCtx" />
 
 		<!-- ── Main sale screen ─────────────────────────────────────────── -->
-		<div :class="['epos-sale-layout grid grid-cols-1 lg:grid-cols-3 gap-4 transition-all duration-300', activeScreen !== 'sale' ? 'blur-sm pointer-events-none scale-[0.98]' : '']">
+		<div :class="['epos-sale-layout grid grid-cols-1 lg:grid-cols-3 gap-4 transition-all duration-300', activeScreen !== 'itemSelection' ? 'blur-sm pointer-events-none scale-[0.98]' : '']">
 
 			<!-- Product Catalog -->
 			<div class="lg:col-span-2">
@@ -65,8 +65,9 @@
 
 		<!-- ── Multi-step Payment Dialog ────────────────────────────────── -->
 		<PaymentDialog
-			v-if="activeScreen !== 'sale'"
+			v-if="activeScreen !== 'itemSelection'"
 			:active-screen="activeScreen"
+			:processing-step="processingStep"
 			:payment-methods="paymentMethods"
 			:selected-payment-method="selectedPaymentMethod"
 			:display-input="displayPaymentInput"
@@ -108,6 +109,14 @@
 			@submit="submitInvoiceFetch"
 		/>
 
+		<!-- Recent Orders Modal -->
+		<RecentOrdersModal
+			v-model="showRecentOrdersModal"
+			:currency="currency"
+			:call="call"
+			@selectOrder="handleSelectRecentOrder"
+		/>
+
 		<!-- Quick item creation -->
 		<QuickCreateModal
 			v-model="showQuickCreateModal"
@@ -133,23 +142,27 @@ import { defineComponent, ref, computed, inject, onMounted, onUnmounted, watch }
 import type { PosContext } from '../types';
 
 // Core components
-import PosHeader from '../components/PosHeader.vue';
-import ProductCatalog from '../components/ProductCatalog.vue';
-import PosCart from '../components/PosCart.vue';
-import PaymentDialog from '../components/PaymentDialog.vue';
+import PosHeader from '../components/pos/PosHeader.vue';
+import ProductCatalog from '../components/pos/ProductCatalog.vue';
+import PosCart from '../components/pos/PosCart.vue';
+import PaymentDialog from '../components/pos/PaymentDialog.vue';
 
 // New modular components
-import SessionStatusBar from '../components/SessionStatusBar.vue';
+import SessionStatusBar from '../components/pos/SessionStatusBar.vue';
 import PluginSlot from '../components/PluginSlot.vue';
-import StartupModal from '../components/StartupModal.vue';
-import InvoiceFetchModal from '../components/InvoiceFetchModal.vue';
-import QuickCreateModal from '../components/QuickCreateModal.vue';
-import GenericItemModal from '../components/GenericItemModal.vue';
+import StartupModal from '../components/pos/StartupModal.vue';
+import InvoiceFetchModal from '../components/pos/InvoiceFetchModal.vue';
+import QuickCreateModal from '../components/pos/QuickCreateModal.vue';
+import GenericItemModal from '../components/pos/GenericItemModal.vue';
+import RecentOrdersModal from '../components/pos/RecentOrdersModal.vue';
 
 // Composables
 import { useSession } from '../composables/useSession';
 import { useCart } from '../composables/useCart';
 import { usePayment } from '../composables/usePayment';
+
+import PluginService from '../services/plugins';
+import '../plugins';
 
 const ENHANCED_POS_SETTINGS_KEY = 'enhanced_pos_selected_settings';
 
@@ -166,6 +179,7 @@ export default defineComponent({
 		InvoiceFetchModal,
 		QuickCreateModal,
 		GenericItemModal,
+		RecentOrdersModal,
 	},
 	setup() {
 		const __ = (text: string, args?: any[]) =>
@@ -176,7 +190,7 @@ export default defineComponent({
 		const session = useSession(call);
 		const {
 			state, visualSettings, products,
-			hasOpenSession, currentOpening, themeClass, compactClass,
+			hasOpenSession, currentOpening, compactClass,
 			currency, showInvoicePicker,
 			loadState, loadProducts,
 			triggerStartupDialog, openRecentOrdersDialog,
@@ -203,7 +217,7 @@ export default defineComponent({
 			state, call
 		);
 		const {
-			activeScreen, paymentMethods, selectedPaymentMethod,
+			activeScreen, processingStep, paymentMethods, selectedPaymentMethod,
 			paymentAmount, paymentDue, canConfirmPayment, displayPaymentInput,
 			successInvoice, successTotal, printFormat, printInvoice,
 			loadPaymentMethods, appendPaymentKey, removeLastPaymentKey,
@@ -221,6 +235,8 @@ export default defineComponent({
 
 		const showInvoiceFetchModal = ref(false);
 		const selectedInvoiceToFetch = ref('');
+
+		const showRecentOrdersModal = ref(false);
 
 		const showQuickCreateModal = ref(false);
 		const quickCreateForm = ref({
@@ -314,7 +330,7 @@ export default defineComponent({
 			];
 			payment.paymentInput.value = String(Number(invoice.outstanding_amount || invoice.grand_total || 0).toFixed(2));
 			await loadPaymentMethods();
-			activeScreen.value = 'sale';
+			activeScreen.value = 'itemSelection';
 			const frappe = (window as any).frappe;
 			if (frappe?.show_alert) {
 				frappe.show_alert({ message: __('Factura {0} agregada al carrito.', [invoice.name]), indicator: 'green' });
@@ -330,6 +346,72 @@ export default defineComponent({
 				selectedInvoiceToFetch.value = '';
 			} catch (e: any) {
 				alert(e.message || 'Error fetching sales invoice details');
+			}
+		};
+
+		const handleSelectRecentOrder = async (order: any) => {
+			if (!order?.name) return;
+			try {
+				const details = await call('enhanced_pos.api.pos.get_any_invoice_details', {
+					invoice_name: order.name,
+					doctype: order.doctype
+				});
+				if (!details?.items?.length) {
+					alert(__('No se encontraron lineas para esta factura.'));
+					return;
+				}
+				
+				// Check if the invoice is unpaid and submitted (docstatus === 1 and outstanding_amount > 0)
+				if (details.docstatus === 1 && details.outstanding_amount > 0) {
+					// Load it as a pending reference payment
+					invoiceToPay.value = {
+						name: details.name,
+						outstanding_amount: Number(details.outstanding_amount || 0),
+						delivery_notes: details.delivery_notes || [],
+					};
+					const referenceKey = `__INVOICE_REFERENCE__${details.name}`;
+					cartItems.value = [
+						...details.items.map((item: any) => ({
+							item_code: `${item.item_code}::${referenceKey}`,
+							item_name: item.description || item.item_name || item.item_code,
+							rate: Number(item.rate || 0),
+							qty: Number(item.qty || 0),
+							is_invoice_child: 1,
+							parent_invoice_reference: referenceKey,
+						})),
+						{
+							item_code: referenceKey,
+							item_name: __('Referencia Factura: {0}', [details.name]),
+							rate: 0, qty: 1, is_reference: 1, invoice_reference_key: referenceKey,
+						},
+					];
+					payment.paymentInput.value = String(Number(details.outstanding_amount).toFixed(2));
+					await loadPaymentMethods();
+					activeScreen.value = 'itemSelection';
+					
+					const frappe = (window as any).frappe;
+					if (frappe?.show_alert) {
+						frappe.show_alert({ message: __('Factura {0} agregada al carrito.', [details.name]), indicator: 'green' });
+					}
+				} else {
+					// It is either a Draft or already Paid.
+					// Load the items directly to the cart as normal items so the cashier can copy/clone it
+					invoiceToPay.value = null; // No pending reference
+					cartItems.value = details.items.map((item: any) => ({
+						item_code: item.item_code,
+						item_name: item.item_name || item.item_code,
+						rate: Number(item.rate || 0),
+						qty: Number(item.qty || 0),
+					}));
+					activeScreen.value = 'itemSelection';
+					
+					const frappe = (window as any).frappe;
+					if (frappe?.show_alert) {
+						frappe.show_alert({ message: __('Artículos de la factura {0} cargados en el carrito.', [details.name]), indicator: 'green' });
+					}
+				}
+			} catch (e: any) {
+				alert(e.message || __('Error al cargar los detalles del pedido.'));
 			}
 		};
 
@@ -395,10 +477,23 @@ export default defineComponent({
 
 		const sendDisplayUpdate = () => {
 			if (!state.value.enable_customer_display) return;
+			
+			const plugin = PluginService.getPaymentPlugin(selectedPaymentMethod.value);
+			const config = plugin?.paymentConfig || { type: 'plugin', requiresKeypad: false, showChange: false };
+			
+			const formattedInput = config.formatInput 
+				? config.formatInput(displayPaymentInput.value) 
+				: displayPaymentInput.value;
+				
+			const formattedChange = config.formatChange 
+				? config.formatChange(Math.max(paymentAmount.value - cartTotal.value, 0))
+				: null;
+
 			broadcastToDisplay('UPDATE_DISPLAY', {
-				activeScreen: activeScreen.value === 'sale' && cartItems.value.length === 0
+				activeScreen: activeScreen.value === 'itemSelection' && cartItems.value.length === 0
 					? 'idle'
-					: (activeScreen.value === 'selectPaymentMode' ? 'payment' : activeScreen.value),
+					: activeScreen.value,
+				processingStep: processingStep.value,
 				items: cartItems.value,
 				total: cartTotal.value,
 				currency: currency.value,
@@ -407,6 +502,15 @@ export default defineComponent({
 				qrCode: qrCode.value,
 				cashReceived: paymentAmount.value,
 				changeAmount: Math.max(paymentAmount.value - cartTotal.value, 0),
+				paymentConfig: {
+					type: config.type,
+					requiresKeypad: config.requiresKeypad,
+					showChange: config.showChange,
+					inputLabel: config.inputLabel,
+					changeLabel: config.changeLabel,
+				},
+				formattedInput,
+				formattedChange,
 				config: {
 					primary_color: state.value.primary_color,
 					customer_display_media: state.value.customer_display_media,
@@ -442,9 +546,23 @@ export default defineComponent({
 			}, 1500);
 		};
 
-		watch([cartItems, cartTotal, activeScreen, selectedPaymentMethod, paymentAmount, paymentDue, qrCode], () => {
-			sendDisplayUpdate();
-		}, { deep: true });
+		watch(
+			[
+				() => cartItems.value,
+				() => cartTotal.value,
+				() => activeScreen.value,
+				() => processingStep.value,
+				() => selectedPaymentMethod.value,
+				() => paymentAmount.value,
+				() => displayPaymentInput.value,
+				() => paymentDue.value,
+				() => qrCode.value
+			],
+			() => {
+				sendDisplayUpdate();
+			},
+			{ deep: true, immediate: true }
+		);
 
 		const abrirPantallaCliente = async (screen: any) => {
 			try {
@@ -504,8 +622,8 @@ export default defineComponent({
 		return {
 			__,
 			// Session
-			state, visualSettings, themeClass, compactClass,
-			hasOpenSession, currentOpening, currency, showInvoicePicker,
+			state, visualSettings, compactClass,
+			hasOpenSession, currentOpening, currency, showInvoicePicker, call,
 			// Products & catalog
 			products, loadProducts,
 			// Cart
@@ -525,6 +643,7 @@ export default defineComponent({
 			showLocalStartupModal, localStartupForm,
 			showInvoiceFetchModal, selectedInvoiceToFetch, submitInvoiceFetch,
 			handleOpenInvoiceFetchDialog,
+			showRecentOrdersModal, handleSelectRecentOrder,
 			showQuickCreateModal, quickCreateForm, openQuickCreateModal, submitQuickCreate,
 			showGenericItemModal, genericItemForm, openGenericItemModal, submitGenericItem,
 			// Plugin context

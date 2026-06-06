@@ -346,7 +346,6 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 		// Computed
 		hasOpenSession,
 		currentOpening,
-		themeClass,
 		compactClass,
 		currency,
 		showInvoicePicker,
@@ -363,7 +362,7 @@ export function useSession(call: (...args: any[]) => Promise<any>) {
 	};
 }
 
-// Internal __ helper (same pattern as Home.vue)
+// Internal __ helper (same pattern as pos.vue)
 function __(text: string, args?: any[]): string {
 	return (window as any).__ ? (window as any).__(text, args) : text;
 }
