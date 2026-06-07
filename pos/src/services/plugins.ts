@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { PosPlugin, CartItem, POSState, Product } from '../types';
+import type { PosPlugin, CartItem, POSState, Product, InvoiceResult } from '../types';
 
 // Re-export types for external consumers
 export type { PosPlugin };
@@ -14,14 +14,19 @@ class PluginRegistry {
 	// ──────────────────────────────────────────────
 
 	public register(plugin: PosPlugin): void {
-		if (!plugin.name || !plugin.hook) {
-			console.error('[EnhancedPOS] Plugin validation failed. Name and hook are required.', plugin);
+		const hasHook = plugin.name && plugin.hook &&
+			(!Array.isArray(plugin.hook) || plugin.hook.length > 0);
+		if (!hasHook) {
+			console.error('[EnhancedPOS] Plugin validation failed. Name and at least one hook are required.', plugin);
 			return;
 		}
 		// Avoid duplicate — replace existing if same name
 		this.unregister(plugin.name);
 		this.state.plugins.push(plugin);
-		console.log(`[EnhancedPOS] Plugin "${plugin.name}" registered for hook "${plugin.hook}".`);
+		const hookDisplay = Array.isArray(plugin.hook)
+			? plugin.hook.join(', ')
+			: plugin.hook;
+		console.log(`[EnhancedPOS] Plugin "${plugin.name}" registered for hook(s): [${hookDisplay}].`);
 	}
 
 	public unregister(name: string): void {
@@ -29,7 +34,11 @@ class PluginRegistry {
 	}
 
 	public getPluginsForHook(hook: string): PosPlugin[] {
-		return this.state.plugins.filter(p => p.hook === hook);
+		return this.state.plugins.filter(p =>
+			Array.isArray(p.hook)
+				? p.hook.includes(hook)
+				: p.hook === hook
+		);
 	}
 
 	// ──────────────────────────────────────────────
@@ -136,14 +145,35 @@ class PluginRegistry {
 	}
 
 
-	/** Fires after the unpaid Sales Invoice has been created and submitted. */
-	public async triggerAfterInvoiceCreate(invoiceDetails: {
-		name: string;
-		outstanding_amount: number;
-		grand_total: number;
+	/**
+	 * Fires before creating the Sales Invoice in ERPNext.
+	 * Any plugin can return `false` to cancel the invoice creation.
+	 * @returns `true` if all plugins allow, `false` if any cancels.
+	 */
+	public async triggerBeforeInvoiceCreate(context: {
+		items: CartItem[];
+		total: number;
 		currency: string;
-		delivery_notes: string[];
-	}): Promise<void> {
+		mode_of_payment: string;
+	}): Promise<boolean> {
+		const hooks = this.state.plugins.filter(p => p.beforeInvoiceCreate);
+		for (const plugin of hooks) {
+			try {
+				const result = await plugin.beforeInvoiceCreate!(context);
+				if (result === false) {
+					console.warn(`[EnhancedPOS] Invoice creation halted by plugin "${plugin.name}".`);
+					return false;
+				}
+			} catch (err) {
+				console.error(`[EnhancedPOS] Error in beforeInvoiceCreate for plugin "${plugin.name}":`, err);
+				throw err;
+			}
+		}
+		return true;
+	}
+
+	/** Fires after the unpaid Sales Invoice has been created and submitted. */
+	public async triggerAfterInvoiceCreate(invoiceDetails: InvoiceResult): Promise<void> {
 		const hooks = this.state.plugins.filter(p => p.afterInvoiceCreate);
 		for (const plugin of hooks) {
 			try {

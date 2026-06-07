@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue';
 import type { Ref } from 'vue';
-import type { CartItem, POSState } from '../types';
+import type { CartItem, POSState, InvoiceResult } from '../types';
 import PluginService from '../services/plugins';
 
 /**
@@ -171,7 +171,58 @@ export function usePayment(
 		}
 	};
 
-	// ── Finalize Purchase & Create Invoice/Payment Entry (Step 2 -> Step 3) ──
+	// ── Create unpaid invoice (explicit, plugin-controlled) ─────────────────
+
+	/**
+	 * Creates an unpaid Sales Invoice in ERPNext from the current cart.
+	 * Fires `beforeInvoiceCreate` (cancellable) then `afterInvoiceCreate` (informational).
+	 * On success, sets `invoiceToPay` so confirmPaymentEntry reuses it.
+	 *
+	 * @returns The invoice data, or null if a beforeInvoiceCreate hook cancelled it.
+	 */
+	const createInvoice = async (): Promise<InvoiceResult | null> => {
+		if (cart.value.length === 0) {
+			alert(__('El carrito está vacío.'));
+			return null;
+		}
+		if (invoiceToPay.value) {
+			console.warn('[EnhancedPOS] createInvoice() called but invoiceToPay already set. Returning existing invoice.');
+			return invoiceToPay.value as InvoiceResult;
+		}
+
+		// Hook: beforeInvoiceCreate — any plugin can cancel
+		const currency = state.value.opening_entries?.[0]?.currency || 'EUR';
+		const allowed = await PluginService.triggerBeforeInvoiceCreate({
+			items: cart.value,
+			total: cartTotal.value,
+			currency,
+			mode_of_payment: selectedPaymentMethod.value,
+		});
+		if (!allowed) return null;
+
+		try {
+			const result: InvoiceResult = await call(
+				'enhanced_pos.api.pos.create_unpaid_invoice',
+				{
+					company: state.value.opening_entries?.[0]?.company,
+					pos_profile: state.value.opening_entries?.[0]?.pos_profile,
+					items: cart.value.filter(item => !item.is_reference),
+				}
+			);
+
+			invoiceToPay.value = result;
+
+			// Hook: afterInvoiceCreate — informational, cannot cancel
+			await PluginService.triggerAfterInvoiceCreate(result);
+
+			return result;
+		} catch (e: any) {
+			alert(e.message || __('Error al crear la factura.'));
+			return null;
+		}
+	};
+
+	// ── Finalize Purchase & Create Invoice/Payment Entry (Step 2 → Step 3) ──
 
 	const confirmPaymentEntry = async (paymentEntryData?: any): Promise<void> => {
 		if (cart.value.length === 0) {
@@ -310,6 +361,7 @@ export function usePayment(
 		goToPaymentScreen,
 		backToSaleScreen,
 		confirmPayment,
+		createInvoice,
 		confirmPaymentEntry,
 		cancelUnpaidInvoice,
 		changePaymentMethod,

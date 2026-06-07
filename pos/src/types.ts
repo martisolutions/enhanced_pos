@@ -85,14 +85,26 @@ export type UIHook =
  * Lifecycle event hooks that do not render UI but run callbacks at key moments.
  */
 export type LifecycleHook =
-	| 'onItemAdd'       // After an item is added to the cart
-	| 'beforePayment'   // Before confirming a payment (can cancel if returns false)
+	| 'onItemAdd'            // After an item is added to the cart
+	| 'beforeInvoiceCreate'  // Before creating the Sales Invoice (can cancel if returns false)
+	| 'beforePayment'        // Before confirming a payment (can cancel if returns false)
 	| 'onPaymentModeConfirmed' // When the payment mode is selected and confirmed
-	| 'afterInvoiceCreate' // After the unpaid Sales Invoice has been created and submitted
-	| 'afterPayment'    // After the payment is confirmed and saved
-	| 'onSessionLoad'   // After the POS session state is loaded
-	| 'onCartChange'    // After any mutation to the cart (add, remove, qty change)
-	| 'onProductsLoad'  // After the product catalog is fetched
+	| 'afterInvoiceCreate'   // After the unpaid Sales Invoice has been created and submitted
+	| 'afterPayment'         // After the payment is confirmed and saved
+	| 'onSessionLoad'        // After the POS session state is loaded
+	| 'onCartChange'         // After any mutation to the cart (add, remove, qty change)
+	| 'onProductsLoad'       // After the product catalog is fetched
+
+/**
+ * Result returned by createInvoice() — mirrors the backend create_unpaid_invoice response.
+ */
+export interface InvoiceResult {
+	name: string;
+	outstanding_amount: number;
+	grand_total: number;
+	currency: string;
+	delivery_notes: string[];
+}
 
 /**
  * Read-only context object passed to every plugin callback and component prop.
@@ -117,12 +129,25 @@ export interface PosContext {
 	customerDisplayConnected: boolean;
 	/** Send custom broadcast payload to the customer display */
 	broadcastToDisplay: (type: string, payload: any) => void;
-	// New checkout fields and methods
+	// ── Checkout state & methods ─────────────────────────────────────
 	invoiceToPay: any;
 	activeScreen: 'idle' | 'itemSelection' | 'selectingPaymentMethod' | 'paymentCheckout' | 'processingPayment' | 'paymentSuccessful' | 'paymentFailed';
 	paymentMethod: string;
 	paymentAmount: number;
+	/**
+	 * Creates an unpaid Sales Invoice in ERPNext from the current cart items.
+	 * Fires the `beforeInvoiceCreate` hook (can cancel) and `afterInvoiceCreate` hook.
+	 * Sets `invoiceToPay` on success so that `confirmPaymentEntry` uses it.
+	 *
+	 * Call this explicitly from your plugin component when you need the invoice
+	 * before processing payment (e.g. Klarna, Stripe, BNPL).
+	 *
+	 * @returns The invoice data, or `null` if cancelled by a `beforeInvoiceCreate` hook.
+	 */
+	createInvoice: () => Promise<InvoiceResult | null>;
+	/** Finalises the payment: runs beforePayment hook, creates Payment Entry, transitions to paymentSuccessful. */
 	confirmPaymentEntry: (paymentEntryData?: any) => Promise<void>;
+	/** Cancels (amends/voids) the current unpaid invoice and returns to itemSelection. */
 	cancelUnpaidInvoice: () => Promise<void>;
 	qrCode: string | null;
 	setQrCode: (url: string | null) => void;
@@ -152,10 +177,17 @@ export interface PosPlugin {
 	/** Human-readable display label (used for buttons in `header_action`) */
 	label?: string;
 	/**
-	 * Hook target. Use a UIHook to render a Vue component,
-	 * or a LifecycleHook / arbitrary string for event-only plugins.
+	 * Hook target(s). Accepts a single hook name or an array of hook names.
+	 * Use UIHooks to render a Vue component into POS UI zones,
+	 * or LifecycleHooks / arbitrary strings for event-only plugins.
+	 *
+	 * @example Single hook (backward compatible):
+	 *   hook: 'new_payment_method'
+	 *
+	 * @example Multiple hooks in one registration:
+	 *   hook: ['new_payment_method', 'header_action']
 	 */
-	hook: UIHook | LifecycleHook | string;
+	hook: UIHook | LifecycleHook | string | Array<UIHook | LifecycleHook | string>;
 
 	// ── UI extension ────────────────────────────────────────────────
 	/** Vue component to render inside a PluginSlot for UIHooks */
@@ -186,27 +218,38 @@ export interface PosPlugin {
 	/** Called after the product catalog is fetched */
 	onProductsLoad?: (products: Product[]) => void;
 	/**
-	 * Called before confirming a payment.
-	 * Return `false` to cancel the payment.
+	 * Called when the payment mode is selected and confirmed (Step 1 → Step 2).
+	 * Return `false` to block the transition.
+	 */
+	onPaymentModeConfirmed?: (paymentData: {
+		mode_of_payment: string;
+		paid_amount: number;
+	}) => Promise<boolean | void> | boolean | void;
+	/**
+	 * Called before creating the Sales Invoice in ERPNext.
+	 * Fires whenever posCtx.createInvoice() is called — either by the core or a plugin.
+	 * Return `false` to cancel invoice creation. The flow returns to paymentCheckout.
+	 */
+	beforeInvoiceCreate?: (context: {
+		items: CartItem[];
+		total: number;
+		currency: string;
+		mode_of_payment: string;
+	}) => Promise<boolean | void> | boolean | void;
+	/**
+	 * Called after the unpaid Sales Invoice has been created and submitted in ERPNext.
+	 * Receives the invoice data. Cannot cancel.
+	 */
+	afterInvoiceCreate?: (invoiceDetails: InvoiceResult) => Promise<void> | void;
+	/**
+	 * Called before confirming a payment (creating the Payment Entry).
+	 * Return `false` to cancel the payment. The flow stays in paymentCheckout.
 	 */
 	beforePayment?: (paymentData: {
 		invoice_name?: string;
 		mode_of_payment: string;
 		paid_amount: number;
 	}) => Promise<boolean | void> | boolean | void;
-	/** Called after the unpaid Sales Invoice has been created and submitted */
-	afterInvoiceCreate?: (invoiceDetails: {
-		name: string;
-		outstanding_amount: number;
-		grand_total: number;
-		currency: string;
-		delivery_notes: string[];
-	}) => Promise<void> | void;
 	/** Called after the payment has been confirmed and saved */
 	afterPayment?: (paymentResult: any) => Promise<void> | void;
-	/** Called when the payment mode is selected and confirmed */
-	onPaymentModeConfirmed?: (paymentData: {
-		mode_of_payment: string;
-		paid_amount: number;
-	}) => Promise<boolean | void> | boolean | void;
 }

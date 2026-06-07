@@ -222,7 +222,7 @@ export default defineComponent({
 			successInvoice, successTotal, printFormat, printInvoice,
 			loadPaymentMethods, appendPaymentKey, removeLastPaymentKey,
 			setExactAmount, goToPaymentScreen, backToSaleScreen, confirmPayment,
-			confirmPaymentEntry, cancelUnpaidInvoice, changePaymentMethod,
+			createInvoice, confirmPaymentEntry, cancelUnpaidInvoice, changePaymentMethod,
 		} = payment;
 
 		// ── Local modal states ─────────────────────────────────────────
@@ -592,6 +592,7 @@ export default defineComponent({
 			activeScreen: activeScreen.value,
 			paymentMethod: selectedPaymentMethod.value,
 			paymentAmount: paymentAmount.value,
+			createInvoice,
 			confirmPaymentEntry,
 			cancelUnpaidInvoice,
 			qrCode: qrCode.value,
@@ -634,7 +635,7 @@ export default defineComponent({
 			paymentAmount, paymentDue, canConfirmPayment, displayPaymentInput,
 			appendPaymentKey, removeLastPaymentKey, setExactAmount,
 			goToPaymentScreen, backToSaleScreen, confirmPayment,
-			confirmPaymentEntry, cancelUnpaidInvoice, changePaymentMethod,
+			createInvoice, confirmPaymentEntry, cancelUnpaidInvoice, changePaymentMethod,
 			successInvoice, successTotal, printInvoice, printFormat,
 			// Session handlers
 			handleTriggerStartup, submitLocalStartup,
